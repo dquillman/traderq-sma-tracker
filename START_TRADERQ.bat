@@ -10,12 +10,15 @@ REM Change to the script directory
 cd /d "%~dp0"
 
 REM Check if virtual environment exists
+echo Current directory: %CD%
+echo Checking for: .venv\Scripts\python.exe
 if not exist ".venv\Scripts\python.exe" (
     echo ERROR: Virtual environment not found!
     echo Please run setup first or check that .venv folder exists.
     pause
     exit /b 1
 )
+echo Virtual environment found!
 
 REM Kill any existing Streamlit processes on port 8501
 echo Checking for existing processes on port 8501...
@@ -48,7 +51,12 @@ echo ========================================
 echo.
 
 REM Run Streamlit directly - this will block and keep the window open
+echo.
+echo Launching: .venv\Scripts\python.exe -m streamlit run app.py --server.port=8501
+echo.
 .venv\Scripts\python.exe -m streamlit run app.py --server.port=8501
+echo.
+echo Streamlit exited with code: %ERRORLEVEL%
 
 REM If we get here, Streamlit has exited
 echo.
