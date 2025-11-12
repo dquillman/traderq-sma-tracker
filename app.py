@@ -1,5 +1,5 @@
 # TraderQ — SMA 20/200 Tracker (Stocks + Crypto)
-# v1.4.7
+# v1.4.8
 # Single-file Streamlit app with clean SMA logic, pretouch screener, cross markers,
 # crypto fallback, and trend chips (Bullish/Bearish) without emoji.
 from __future__ import annotations
@@ -302,11 +302,11 @@ def make_chart(df: pd.DataFrame, title: str, theme: str, pretouch_pct: float | N
 
     fig.update_layout(
         template=template,
-        title=title,
+        title=dict(text=title, y=0.98, yanchor="top"),
         xaxis_rangeslider_visible=False,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
-        margin=dict(l=10, r=10, t=40, b=10),
-        height=520
+        margin=dict(l=10, r=10, t=60, b=10),
+        height=540
     )
     return fig
 
