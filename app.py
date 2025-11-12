@@ -1,5 +1,5 @@
-﻿# TraderQ — SMA 20/200 Tracker (Stocks + Crypto)
-# v1.4.0
+# TraderQ — SMA 20/200 Tracker (Stocks + Crypto)
+# v1.4.6
 # Single-file Streamlit app with clean SMA logic, pretouch screener, cross markers,
 # crypto fallback, and trend chips (Bullish/Bearish) without emoji.
 from __future__ import annotations
@@ -11,13 +11,52 @@ from functools import lru_cache
 
 import numpy as np
 import pandas as pd
-import plotly.graph_objects as go
+import plotly.graph_objects as go
+
+def add_cross_markers(fig: go.Figure, df: pd.DataFrame,
+                      price_col: str = "Close",
+                      s20: str = "SMA20",
+                      s200: str = "SMA200") -> None:
+    """
+    Golden cross: 20 crosses above 200 (green triangle-up)
+    Death  cross: 20 crosses below 200 (red triangle-down)
+    Works if df has df[price_col], df[s20], df[s200].
+    """
+    if df is None or df.empty:
+        return
+    needed = (price_col, s20, s200)
+    if any(c not in df.columns for c in needed):
+        return
+    s_prev = df[s20].shift(1)
+    l_prev = df[s200].shift(1)
+    cross_up = (s_prev <= l_prev) & (df[s20] > df[s200])
+    cross_dn = (s_prev >= l_prev) & (df[s20] < df[s200])
+    xu, yu = df.index[cross_up], df.loc[cross_up, price_col]
+    xd, yd = df.index[cross_dn], df.loc[cross_dn, price_col]
+    if len(xu):
+        fig.add_trace(go.Scatter(
+            x=xu, y=yu, mode="markers", name="Golden Cross",
+            marker=dict(symbol="triangle-up", size=25, color="#17c964",
+                        line=dict(width=1, color="#0b3820")),
+            hovertemplate="Golden: %{x|%Y-%m-%d}<br>Price: %{y:.2f}<extra></extra>",
+            showlegend=True
+        ))
+    if len(xd):
+        fig.add_trace(go.Scatter(
+            x=xd, y=yd, mode="markers", name="Death Cross",
+            marker=dict(symbol="triangle-down", size=25, color="#f31260",
+                        line=dict(width=1, color="#4a0b19")),
+            hovertemplate="Death: %{x|%Y-%m-%d}<br>Price: %{y:.2f}<extra></extra>",
+            showlegend=True
+        ))
+
+
 import streamlit as st
 import ui_glow_patch
 import yf_patch  # glow+session patch
 
-APP_VERSION = "v1.4.5"
-# v1.4.5 – yfinance session fix + glow UI + data restored
+APP_VERSION = "v1.4.6"
+# v1.4.6 – fixed cross markers + bigger size (25) + Touch column in screener
 
 # --- Settings / Defaults ---
 DEFAULT_STOCKS = ["^GSPC", "^DJI", "^IXIC", "SPY", "QQQ"]
@@ -216,14 +255,8 @@ def make_chart(df: pd.DataFrame, title: str, theme: str, pretouch_pct: float | N
     fig.add_trace(go.Scatter(x=df.index, y=df["SMA20"], mode="lines", name=f"SMA {SMA_SHORT}", line=dict(width=2)))
     fig.add_trace(go.Scatter(x=df.index, y=df["SMA200"], mode="lines", name=f"SMA {SMA_LONG}", line=dict(width=2)))
 
-    # Cross markers (golden/death)
-    cross_up = (df["SMA20"].shift(1) < df["SMA200"].shift(1)) & (df["SMA20"] >= df["SMA200"])
-    cross_dn = (df["SMA20"].shift(1) > df["SMA200"].shift(1)) & (df["SMA20"] <= df["SMA200"])
-
-    for idx in df.index[cross_up.fillna(False)]:
-        fig.add_vline(x=idx, line_width=1, line_dash="dash", line_color="rgba(0,180,0,0.45)")
-    for idx in df.index[cross_dn.fillna(False)]:
-        fig.add_vline(x=idx, line_width=1, line_dash="dash", line_color="rgba(200,0,0,0.45)")
+    # Add cross markers (golden/death crosses)
+    add_cross_markers(fig, df, price_col="close", s20="SMA20", s200="SMA200")
 
     # Pretouch band (symmetric % around SMA200)
     if pretouch_pct and pretouch_pct > 0:
@@ -276,10 +309,17 @@ def build_screener(tickers: list[str], start: date, end: date, mode: str, pretou
             "Dist to SMA200 (%)": _pct(price, sma200),
             "Dist to SMA20 (%)": _pct(price, sma20),
         }
-        # Optional: whether price is inside pretouch band
-        if pretouch_pct and pretouch_pct > 0 and not math.isnan(sma200):
+
+        # Check if SMA20 is touching the SMA200 pretouch band
+        touch = ""
+        if pretouch_pct and pretouch_pct > 0 and not math.isnan(sma20) and not math.isnan(sma200):
             band = sma200 * (pretouch_pct / 100.0)
-            row["In Pretouch Band"] = (sma200 - band) <= price <= (sma200 + band)
+            upper = sma200 + band
+            lower = sma200 - band
+            if lower <= sma20 <= upper:
+                touch = "🟡"  # Yellow circle when SMA20 is in the band
+        row["Touch"] = touch
+
         rows.append(row)
 
     df = pd.DataFrame(rows)
@@ -351,7 +391,7 @@ screener_df = build_screener(selected or universe, start_d, end_d, mode, pretouc
 if screener_df.empty:
     st.info("No data to screen.")
 else:
-    show_cols = ["Ticker", "Trend", "Last", "SMA20", "SMA200", "Dist to SMA200 (%)", "Dist to SMA20 (%)"]
+    show_cols = ["Ticker", "Trend", "Touch", "Last", "SMA20", "SMA200", "Dist to SMA200 (%)", "Dist to SMA20 (%)"]
     s = screener_df[show_cols].style.apply(
         lambda col: [_badge_color(v) for v in col], subset=["Trend"]
     ).format({
@@ -377,56 +417,5 @@ with st.expander("About / Diagnostics"):
     st.write("Built with Streamlit, yfinance, CoinGecko, Plotly. No paid data sources.")
 
 
-# ===== HOTFIX (_to_ohlc override) v1.4.3 =====
-def _to_ohlc(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Normalize to columns: ['open','high','low','close','volume'].
-    Robust to yfinance MultiIndex like ('Open','SPY') or ('SPY','Open').
-    """
-    import numpy as _np
-    import pandas as _pd
 
-    if df is None or len(df) == 0:
-        return _pd.DataFrame(columns=["open","high","low","close","volume"])
-
-    # Flatten MultiIndex columns by choosing the OHLC token if present.
-    if isinstance(df.columns, _pd.MultiIndex):
-        flat_cols = []
-        for col in df.columns:
-            parts = [str(p) for p in col if p is not None]
-            tokens = [p.lower() for p in parts]
-            field = None
-            for p in tokens:
-                if p in {"open","high","low","close","adj close","adj_close","adjclose","volume"}:
-                    field = p
-                    break
-            if field is None:
-                field = tokens[-1] if tokens else "close"
-            if field == "adj close":
-                field = "adj_close"
-            flat_cols.append(field)
-        df.columns = flat_cols
-    else:
-        df.columns = [str(c) for c in df.columns]
-
-    cols_lower = [c.lower() for c in df.columns]
-    out = _pd.DataFrame(index=df.index)
-
-    def pick(*cands):
-        for name in cands:
-            name_l = name.lower()
-            if name_l in cols_lower:
-                return df.iloc[:, cols_lower.index(name_l)]
-        return _pd.Series(_np.nan, index=df.index, dtype="float64")
-
-    out["open"]   = pick("open")
-    out["high"]   = pick("high")
-    out["low"]    = pick("low")
-    close_series  = pick("close")
-    if close_series.isna().all():
-        close_series = pick("adj_close","adj close","adjclose")
-    out["close"]  = close_series
-    out["volume"] = pick("volume")
-    return out
-# ===== END HOTFIX =====
 
