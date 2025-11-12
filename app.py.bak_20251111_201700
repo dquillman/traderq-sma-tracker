@@ -14,7 +14,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-APP_VERSION = "v1.4.4"
+APP_VERSION = "v1.4.0"
 
 # --- Settings / Defaults ---
 DEFAULT_STOCKS = ["^GSPC", "^DJI", "^IXIC", "SPY", "QQQ"]
@@ -42,55 +42,20 @@ def _ensure_datetime_index(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 def _to_ohlc(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Normalize to ['open','high','low','close','volume'].
-    Robust to yfinance MultiIndex columns like ('Open','SPY') or ('SPY','Open').
-    """
-    import numpy as _np
-    import pandas as _pd
-
-    if df is None or len(df) == 0:
-        return _pd.DataFrame(columns=["open","high","low","close","volume"])
-
-    # Flatten MultiIndex columns by picking the OHLC token where present
-    if isinstance(df.columns, _pd.MultiIndex):
-        flat_cols = []
-        for col in df.columns:
-            parts = [str(p) for p in col if p is not None]
-            tokens = [p.lower() for p in parts]
-            field = None
-            for p in tokens:
-                if p in {"open","high","low","close","adj close","adj_close","adjclose","volume"}:
-                    field = p
-                    break
-            if field is None:
-                field = tokens[-1] if tokens else "close"
-            if field == "adj close":
-                field = "adj_close"
-            flat_cols.append(field)
-        df.columns = flat_cols
-    else:
-        df.columns = [str(c) for c in df.columns]
-
-    cols_lower = [c.lower() for c in df.columns]
-    out = _pd.DataFrame(index=df.index)
-
-    def pick(*cands):
-        for name in cands:
-            name_l = name.lower()
-            if name_l in cols_lower:
-                return df.iloc[:, cols_lower.index(name_l)]
-        return _pd.Series(_np.nan, index=df.index, dtype="float64")
-
-    out["open"]   = pick("open")
-    out["high"]   = pick("high")
-    out["low"]    = pick("low")
-    close_series  = pick("close")
-    if close_series.isna().all():
-        close_series = pick("adj_close","adj close","adjclose")
-    out["close"]  = close_series
-    out["volume"] = pick("volume")
-
+    # Normalize columns to ['open','high','low','close','volume']
+    cols = {c.lower(): c for c in df.columns}
+    out = pd.DataFrame(index=df.index)
+    for k in ["open", "high", "low", "close", "volume"]:
+        if k in cols:
+            out[k] = df[cols[k]]
+        elif k.upper() in df.columns:
+            out[k] = df[k.upper()]
+        else:
+            # many Yahoo frames have 'Adj Close' instead of close
+            if k == "close" and "Adj Close" in df.columns:
+                out[k] = df["Adj Close"]
+            else:
+                out[k] = np.nan
     return out
 
 def _sma(series: pd.Series, window: int) -> pd.Series:
@@ -371,58 +336,3 @@ with st.expander("About / Diagnostics"):
     st.write("If crypto history appears short, CoinGecko free API caps range to ~365 days. "
              "The app falls back between Yahoo and CoinGecko automatically.")
     st.write("Built with Streamlit, yfinance, CoinGecko, Plotly. No paid data sources.")
-
-
-# ===== HOTFIX (_to_ohlc override) v1.4.3 =====
-def _to_ohlc(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Normalize to columns: ['open','high','low','close','volume'].
-    Robust to yfinance MultiIndex like ('Open','SPY') or ('SPY','Open').
-    """
-    import numpy as _np
-    import pandas as _pd
-
-    if df is None or len(df) == 0:
-        return _pd.DataFrame(columns=["open","high","low","close","volume"])
-
-    # Flatten MultiIndex columns by choosing the OHLC token if present.
-    if isinstance(df.columns, _pd.MultiIndex):
-        flat_cols = []
-        for col in df.columns:
-            parts = [str(p) for p in col if p is not None]
-            tokens = [p.lower() for p in parts]
-            field = None
-            for p in tokens:
-                if p in {"open","high","low","close","adj close","adj_close","adjclose","volume"}:
-                    field = p
-                    break
-            if field is None:
-                field = tokens[-1] if tokens else "close"
-            if field == "adj close":
-                field = "adj_close"
-            flat_cols.append(field)
-        df.columns = flat_cols
-    else:
-        df.columns = [str(c) for c in df.columns]
-
-    cols_lower = [c.lower() for c in df.columns]
-    out = _pd.DataFrame(index=df.index)
-
-    def pick(*cands):
-        for name in cands:
-            name_l = name.lower()
-            if name_l in cols_lower:
-                return df.iloc[:, cols_lower.index(name_l)]
-        return _pd.Series(_np.nan, index=df.index, dtype="float64")
-
-    out["open"]   = pick("open")
-    out["high"]   = pick("high")
-    out["low"]    = pick("low")
-    close_series  = pick("close")
-    if close_series.isna().all():
-        close_series = pick("adj_close","adj close","adjclose")
-    out["close"]  = close_series
-    out["volume"] = pick("volume")
-    return out
-# ===== END HOTFIX =====
-
