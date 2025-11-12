@@ -7,7 +7,7 @@ import plotly.graph_objects as go
 import pandas_datareader.data as pdr
 from pycoingecko import CoinGeckoAPI
 
-APP_VERSION = "v1.3.11"
+APP_VERSION = "v1.3.12"
 
 # ============== Page / UX ==============
 st.set_page_config(page_title="SMA Pro", layout="wide")
@@ -435,6 +435,7 @@ for tkr in tickers:
             st.plotly_chart(curve_fig, use_container_width=True, key=f"{tkr}_curve")
 
 st.caption("Educational use only. Not financial advice.")
+
 
 
 
