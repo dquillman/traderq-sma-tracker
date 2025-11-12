@@ -47,22 +47,8 @@ echo.
 echo ========================================
 echo.
 
-REM Run Streamlit with browser opening disabled, then open it manually
-REM This ensures the server is fully ready before browser opens
-start "" .venv\Scripts\python.exe -m streamlit run app.py --server.port=8501 --server.headless=true
-
-REM Wait 5 seconds for server to fully start
-echo Waiting for server to start...
-timeout /t 5 /nobreak >nul
-
-REM Open the browser
-echo Opening browser...
-start http://localhost:8501
-
-REM Keep this window open - press Ctrl+C or close window to stop
-echo.
-echo Server is running. Close this window to stop the server.
-pause >nul
+REM Run Streamlit directly - this will block and keep the window open
+.venv\Scripts\python.exe -m streamlit run app.py --server.port=8501
 
 REM If we get here, Streamlit has exited
 echo.
