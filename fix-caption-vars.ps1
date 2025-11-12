@@ -1,0 +1,1 @@
+﻿(Get-Content "G:\Users\daveq\traderq\app.py" -Raw) -replace 'gu.*?gd.*?price=\{price_col\}, s20=\{s20\}, s200=\{s200\}', '_golden}, death={_death} | price={price_col}, s20=SMA20, s200=SMA200' | Set-Content "G:\Users\daveq\traderq\app.py"

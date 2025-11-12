@@ -1,13 +1,15 @@
 # TraderQ — SMA 20/200 Tracker (Stocks + Crypto)
-# v1.4.6
+# v1.4.7
 # Single-file Streamlit app with clean SMA logic, pretouch screener, cross markers,
 # crypto fallback, and trend chips (Bullish/Bearish) without emoji.
 from __future__ import annotations
 
+import json
 import math
 import time
 from datetime import date, datetime, timedelta
 from functools import lru_cache
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -55,8 +57,8 @@ import streamlit as st
 import ui_glow_patch
 import yf_patch  # glow+session patch
 
-APP_VERSION = "v1.4.6"
-# v1.4.6 – fixed cross markers + bigger size (25) + Touch column in screener
+APP_VERSION = "v1.4.7"
+# v1.4.7 – persistent custom tickers + reorder charts + desktop launcher with icon
 
 # --- Settings / Defaults ---
 DEFAULT_STOCKS = ["^GSPC", "^DJI", "^IXIC", "SPY", "QQQ"]
@@ -64,6 +66,33 @@ DEFAULT_CRYPTOS = ["BTC-USD", "ETH-USD", "SOL-USD"]
 DEFAULT_PERIOD_DAYS = 365 * 2  # 2 years for stocks; crypto API may cap to 365 in fallback
 SMA_SHORT = 20
 SMA_LONG = 200
+
+# --- Custom ticker persistence ---
+CUSTOM_TICKERS_FILE = Path(__file__).parent / ".custom_tickers.json"
+
+def load_custom_tickers() -> dict:
+    """Load custom tickers from JSON file."""
+    if CUSTOM_TICKERS_FILE.exists():
+        try:
+            with open(CUSTOM_TICKERS_FILE, "r") as f:
+                data = json.load(f)
+                # Ensure both custom and selected keys exist
+                if "custom" not in data:
+                    data = {"custom": {"Stocks": [], "Crypto": []}, "selected": {"Stocks": [], "Crypto": []}}
+                if "selected" not in data:
+                    data["selected"] = {"Stocks": [], "Crypto": []}
+                return data
+        except Exception:
+            return {"custom": {"Stocks": [], "Crypto": []}, "selected": {"Stocks": [], "Crypto": []}}
+    return {"custom": {"Stocks": [], "Crypto": []}, "selected": {"Stocks": [], "Crypto": []}}
+
+def save_custom_tickers(data: dict):
+    """Save custom tickers to JSON file."""
+    try:
+        with open(CUSTOM_TICKERS_FILE, "w") as f:
+            json.dump(data, f, indent=2)
+    except Exception:
+        pass
 
 # --- Lazy imports for data providers ---
 @lru_cache(maxsize=1)
@@ -343,18 +372,111 @@ period_days = st.sidebar.select_slider("Lookback (days)", options=[180, 365, 540
 end_d = date.today()
 start_d = end_d - timedelta(days=int(period_days))
 
-# Ticker selection
+# Ticker selection with persistent custom tickers
 universe = DEFAULT_STOCKS if mode == "Stocks" else DEFAULT_CRYPTOS
+
+# Initialize session state for custom tickers per mode (load from file on first run)
+if "custom_tickers_loaded" not in st.session_state:
+    st.session_state["custom_tickers_loaded"] = True
+    saved_data = load_custom_tickers()
+    st.session_state["custom_tickers_Stocks"] = saved_data.get("custom", {}).get("Stocks", [])
+    st.session_state["custom_tickers_Crypto"] = saved_data.get("custom", {}).get("Crypto", [])
+    st.session_state["selected_tickers_Stocks"] = saved_data.get("selected", {}).get("Stocks", [])
+    st.session_state["selected_tickers_Crypto"] = saved_data.get("selected", {}).get("Crypto", [])
+
+if f"custom_tickers_{mode}" not in st.session_state:
+    st.session_state[f"custom_tickers_{mode}"] = []
+if f"selected_tickers_{mode}" not in st.session_state:
+    st.session_state[f"selected_tickers_{mode}"] = []
+
 left, right = st.columns([1, 3])
 with left:
     st.subheader("Symbols")
-    selected = st.multiselect("Choose tickers", options=universe, default=universe, key=f"choose_{mode}")
+    # Combine universe with custom tickers for options
+    all_options = list(dict.fromkeys(universe + st.session_state[f"custom_tickers_{mode}"]))
+    # Use saved selected tickers if available, otherwise default to universe
+    default_selected = st.session_state[f"selected_tickers_{mode}"] if st.session_state[f"selected_tickers_{mode}"] else universe
+    selected = st.multiselect("Choose tickers", options=all_options, default=default_selected, key=f"choose_{mode}")
+
+    # Save selected tickers whenever they change
+    if selected != st.session_state.get(f"_prev_selected_{mode}", []):
+        st.session_state[f"_prev_selected_{mode}"] = selected
+        st.session_state[f"selected_tickers_{mode}"] = selected
+        save_custom_tickers({
+            "custom": {
+                "Stocks": st.session_state.get("custom_tickers_Stocks", []),
+                "Crypto": st.session_state.get("custom_tickers_Crypto", [])
+            },
+            "selected": {
+                "Stocks": st.session_state.get("selected_tickers_Stocks", []),
+                "Crypto": st.session_state.get("selected_tickers_Crypto", [])
+            }
+        })
+
+    # Reorder controls
+    if len(selected) > 1:
+        st.markdown("**Reorder:**")
+        reorder_cols = st.columns([3, 1, 1])
+        with reorder_cols[0]:
+            ticker_to_move = st.selectbox("Select ticker to move", selected, key=f"reorder_select_{mode}")
+        with reorder_cols[1]:
+            if st.button("↑", key=f"move_up_{mode}", help="Move up"):
+                idx = selected.index(ticker_to_move)
+                if idx > 0:
+                    selected[idx], selected[idx-1] = selected[idx-1], selected[idx]
+                    st.session_state[f"selected_tickers_{mode}"] = selected
+                    save_custom_tickers({
+                        "custom": {
+                            "Stocks": st.session_state.get("custom_tickers_Stocks", []),
+                            "Crypto": st.session_state.get("custom_tickers_Crypto", [])
+                        },
+                        "selected": {
+                            "Stocks": st.session_state.get("selected_tickers_Stocks", []),
+                            "Crypto": st.session_state.get("selected_tickers_Crypto", [])
+                        }
+                    })
+                    st.rerun()
+        with reorder_cols[2]:
+            if st.button("↓", key=f"move_down_{mode}", help="Move down"):
+                idx = selected.index(ticker_to_move)
+                if idx < len(selected) - 1:
+                    selected[idx], selected[idx+1] = selected[idx+1], selected[idx]
+                    st.session_state[f"selected_tickers_{mode}"] = selected
+                    save_custom_tickers({
+                        "custom": {
+                            "Stocks": st.session_state.get("custom_tickers_Stocks", []),
+                            "Crypto": st.session_state.get("custom_tickers_Crypto", [])
+                        },
+                        "selected": {
+                            "Stocks": st.session_state.get("selected_tickers_Stocks", []),
+                            "Crypto": st.session_state.get("selected_tickers_Crypto", [])
+                        }
+                    })
+                    st.rerun()
+
 with right:
     st.subheader("Quick Add")
-    custom = st.text_input("Add ticker (Yahoo symbol)", value="", placeholder="e.g., AAPL or BTC-USD")
-    if custom.strip():
-        if custom.strip() not in selected:
-            selected.append(custom.strip())
+    custom = st.text_input("Add ticker (Yahoo symbol)", value="", placeholder="e.g., AAPL or BTC-USD", key=f"quick_add_{mode}")
+    if st.button("Add", key=f"add_btn_{mode}"):
+        if custom.strip():
+            custom_upper = custom.strip().upper()
+            if custom_upper not in st.session_state[f"custom_tickers_{mode}"]:
+                st.session_state[f"custom_tickers_{mode}"].append(custom_upper)
+                # Also add to selected tickers
+                if custom_upper not in st.session_state[f"selected_tickers_{mode}"]:
+                    st.session_state[f"selected_tickers_{mode}"].append(custom_upper)
+                # Save to file
+                save_custom_tickers({
+                    "custom": {
+                        "Stocks": st.session_state.get("custom_tickers_Stocks", []),
+                        "Crypto": st.session_state.get("custom_tickers_Crypto", [])
+                    },
+                    "selected": {
+                        "Stocks": st.session_state.get("selected_tickers_Stocks", []),
+                        "Crypto": st.session_state.get("selected_tickers_Crypto", [])
+                    }
+                })
+                st.rerun()
 
 # Safety: unique list
 selected = list(dict.fromkeys(selected))

@@ -1,0 +1,23 @@
+{
+  "custom": {
+    "Stocks": [],
+    "Crypto": [
+      "DOGE-USD"
+    ]
+  },
+  "selected": {
+    "Stocks": [
+      "^DJI",
+      "QQQ",
+      "^GSPC",
+      "^IXIC",
+      "SPY"
+    ],
+    "Crypto": [
+      "BTC-USD",
+      "ETH-USD",
+      "SOL-USD",
+      "DOGE-USD"
+    ]
+  }
+}
