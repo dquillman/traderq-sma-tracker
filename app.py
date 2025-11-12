@@ -2,8 +2,8 @@
 # v1.4.0
 # Single-file Streamlit app with clean SMA logic, pretouch screener, cross markers,
 # crypto fallback, and trend chips (Bullish/Bearish) without emoji.
-
 from __future__ import annotations
+
 import math
 import time
 from datetime import date, datetime, timedelta
@@ -13,8 +13,11 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+import ui_glow_patch
+import yf_patch  # glow+session patch
 
-APP_VERSION = "v1.4.4"
+APP_VERSION = "v1.4.5"
+# v1.4.5 – yfinance session fix + glow UI + data restored
 
 # --- Settings / Defaults ---
 DEFAULT_STOCKS = ["^GSPC", "^DJI", "^IXIC", "SPY", "QQQ"]
@@ -287,6 +290,7 @@ def build_screener(tickers: list[str], start: date, end: date, mode: str, pretou
 
 # --- UI ---
 st.set_page_config(page_title="TraderQ SMA 20/200", layout="wide")
+ui_glow_patch.apply()  # apply glow after set_page_config
 st.title(f"TraderQ SMA 20/200 Tracker — {APP_VERSION}")
 
 # Sidebar controls
