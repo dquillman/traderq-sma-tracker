@@ -1,4 +1,6 @@
 @echo off
+setlocal enabledelayedexpansion
+
 echo ========================================
 echo   Starting TraderQ SMA Tracker
 echo ========================================
@@ -15,16 +17,59 @@ if not exist ".venv\Scripts\python.exe" (
     exit /b 1
 )
 
-REM Activate virtual environment and run Streamlit
-echo Starting Streamlit app...
+REM Kill any existing Streamlit processes on port 8501
+echo Checking for existing processes on port 8501...
+set "found_process=0"
+for /f "tokens=5" %%a in ('netstat -aon 2^>nul ^| findstr :8501 ^| findstr LISTENING') do (
+    echo Killing existing process on port 8501 (PID: %%a)
+    taskkill /F /PID %%a >nul 2>&1
+    set "found_process=1"
+)
+
+if !found_process!==1 (
+    echo Waiting for port to be released...
+    timeout /t 3 /nobreak >nul
+) else (
+    echo No existing processes found on port 8501.
+)
+
+echo.
+echo Starting Streamlit...
+echo ========================================
 echo.
 echo The app will open in your default browser at:
 echo   http://localhost:8501
 echo.
-echo Press Ctrl+C to stop the server
+echo To stop the server:
+echo   - Close this window, OR
+echo   - Press Ctrl+C in this window
+echo.
 echo ========================================
 echo.
 
-.venv\Scripts\python.exe -m streamlit run app.py --server.port=8501
+REM Run Streamlit - this will keep the window open
+REM Start Streamlit in the background and then open the browser
+start /B .venv\Scripts\python.exe -m streamlit run app.py --server.port=8501
 
+REM Wait 3 seconds for server to start
+timeout /t 3 /nobreak >nul
+
+REM Open the browser
+start http://localhost:8501
+
+REM Wait for Streamlit to finish (Ctrl+C to stop)
+:waitloop
+timeout /t 2 /nobreak >nul
+netstat -aon 2>nul | findstr :8501 | findstr LISTENING >nul
+if %errorlevel%==0 goto waitloop
+
+REM If we get here, Streamlit has exited
+echo.
+echo.
+echo TraderQ has stopped.
+echo Cleaning up any remaining processes...
+for /f "tokens=5" %%a in ('netstat -aon 2^>nul ^| findstr :8501 ^| findstr LISTENING') do (
+    taskkill /F /PID %%a >nul 2>&1
+)
+echo.
 pause
