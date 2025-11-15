@@ -2614,10 +2614,15 @@ with tab4:
     
     # Portfolio tickers
     st.subheader("Portfolio Tickers")
+    available_tickers = selected or universe
+    saved_tickers = portfolio.get("tickers", [])
+    # Filter saved tickers to only include those in available options
+    valid_defaults = [t for t in saved_tickers if t in available_tickers]
+    
     portfolio_tickers = st.multiselect(
         "Select tickers for portfolio",
-        options=selected or universe,
-        default=portfolio.get("tickers", []),
+        options=available_tickers,
+        default=valid_defaults,
         key="portfolio_tickers"
     )
     
