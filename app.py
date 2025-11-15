@@ -59,8 +59,8 @@ import streamlit as st
 import ui_glow_patch
 import yf_patch  # glow+session patch
 
-APP_VERSION = "v2.0.0"
-# v2.0.0 – email alerts, multi-timeframe, support/resistance, advanced screener, trade journal, patterns, news, correlation
+APP_VERSION = "v2.1.0"
+# v2.1.0 – risk management dashboard, signal generator, win rate analytics, position tracking, market regime detection
 
 # --- Settings / Defaults ---
 DEFAULT_STOCKS = ["^GSPC", "^DJI", "^IXIC", "SPY", "QQQ"]
@@ -428,18 +428,556 @@ def calculate_correlation(tickers: list[str], start: date, end: date, mode: str,
     correlation = returns.corr()
     return correlation
 
+# --- Sentiment Analysis ---
+def analyze_sentiment(text: str) -> dict:
+    """Analyze sentiment of text and return bullish/bearish classification."""
+    if not text or len(text.strip()) == 0:
+        return {"sentiment": "NEUTRAL", "score": 0.0, "confidence": 0.0}
+    
+    text_lower = text.lower()
+    
+    # Bullish keywords
+    bullish_keywords = [
+        "surge", "rally", "gain", "rise", "up", "bullish", "buy", "strong", "growth",
+        "profit", "beat", "exceed", "outperform", "positive", "optimistic", "upgrade",
+        "breakthrough", "success", "win", "soar", "jump", "climb", "advance", "boom"
+    ]
+    
+    # Bearish keywords
+    bearish_keywords = [
+        "drop", "fall", "decline", "down", "bearish", "sell", "weak", "loss", "miss",
+        "disappoint", "underperform", "negative", "pessimistic", "downgrade", "crash",
+        "plunge", "tumble", "slump", "sink", "retreat", "worry", "concern", "risk",
+        "warning", "crisis", "recession", "bankruptcy", "lawsuit", "investigation"
+    ]
+    
+    # Count keyword matches
+    bullish_count = sum(1 for word in bullish_keywords if word in text_lower)
+    bearish_count = sum(1 for word in bearish_keywords if word in text_lower)
+    
+    # Calculate sentiment score (-1 to 1)
+    total_keywords = bullish_count + bearish_count
+    if total_keywords == 0:
+        score = 0.0
+    else:
+        score = (bullish_count - bearish_count) / max(total_keywords, 1)
+    
+    # Determine sentiment
+    if score > 0.2:
+        sentiment = "BULLISH"
+        confidence = min(abs(score) * 2, 1.0)
+    elif score < -0.2:
+        sentiment = "BEARISH"
+        confidence = min(abs(score) * 2, 1.0)
+    else:
+        sentiment = "NEUTRAL"
+        confidence = 1.0 - abs(score)
+    
+    return {
+        "sentiment": sentiment,
+        "score": round(score, 2),
+        "confidence": round(confidence, 2),
+        "bullish_keywords": bullish_count,
+        "bearish_keywords": bearish_count
+    }
+
 # --- News Fetching ---
 def fetch_news(ticker: str, max_items: int = 5) -> list:
     """Fetch news for a ticker using Yahoo Finance."""
     try:
         yf = _yf()
         stock = yf.Ticker(ticker)
-        news = stock.news
-        if news:
-            return news[:max_items]
-    except Exception:
-        pass
-    return []
+        
+        # Try multiple methods to get news
+        news = None
+        
+        # Method 1: Direct property access
+        if hasattr(stock, 'news'):
+            try:
+                news = stock.news
+                if news and len(news) > 0:
+                    pass  # Got news, continue
+                else:
+                    news = None
+            except Exception as e:
+                import sys
+                print(f"Method 1 (news property) failed: {e}", file=sys.stderr)
+                news = None
+        
+        # Method 2: Try get_news() if it exists
+        if (news is None or (isinstance(news, list) and len(news) == 0)) and hasattr(stock, 'get_news'):
+            try:
+                news = stock.get_news()
+            except Exception as e:
+                import sys
+                print(f"Method 2 (get_news) failed: {e}", file=sys.stderr)
+        
+        # Method 3: Try accessing via info or other attributes
+        if (news is None or (isinstance(news, list) and len(news) == 0)) and hasattr(stock, 'info'):
+            try:
+                info = stock.info
+                if isinstance(info, dict) and 'news' in info:
+                    news = info['news']
+            except Exception:
+                pass
+        
+        # Debug: Print what we got
+        import sys
+        if news is None:
+            print(f"No news found for {ticker} - news is None", file=sys.stderr)
+        elif isinstance(news, list) and len(news) == 0:
+            print(f"Empty news list for {ticker}", file=sys.stderr)
+        else:
+            print(f"Found news for {ticker}: type={type(news)}, length={len(news) if isinstance(news, list) else 'N/A'}", file=sys.stderr)
+            if isinstance(news, list) and len(news) > 0:
+                print(f"First item type: {type(news[0])}", file=sys.stderr)
+                if isinstance(news[0], dict):
+                    print(f"First item keys: {list(news[0].keys())}", file=sys.stderr)
+                    # Print first item for debugging
+                    print(f"First item sample: {str(news[0])[:200]}", file=sys.stderr)
+        
+        # Handle different return types
+        if news is None:
+            return []
+        
+        # Check if it's an empty list
+        if isinstance(news, list) and len(news) == 0:
+            return []
+        
+        # If it's a list, process it
+        if isinstance(news, list):
+            if len(news) > 0:
+                # Add sentiment analysis to each article
+                enriched_news = []
+                for item in news[:max_items]:
+                    # Normalize the item - yfinance news items can have different structures
+                    normalized_item = {}
+                    
+                    # Handle both dict and object types
+                    if not isinstance(item, dict):
+                        # Convert to dict if it's an object
+                        try:
+                            if hasattr(item, '__dict__'):
+                                item = vars(item)
+                            elif hasattr(item, 'keys'):
+                                item = dict(item)
+                            else:
+                                item = {}
+                        except Exception:
+                            item = {}
+                    
+                    # NEW: Handle the case where content is a string containing dict data
+                    content_data = {}
+                    if 'content' in item:
+                        content_str = item.get('content', '')
+                        if isinstance(content_str, str):
+                            # Try to parse the content string as JSON or eval it
+                            try:
+                                import ast
+                                # Try to safely evaluate the string as a dict
+                                content_data = ast.literal_eval(content_str)
+                            except Exception:
+                                try:
+                                    import json
+                                    content_data = json.loads(content_str.replace("'", '"'))
+                                except Exception:
+                                    # If parsing fails, use the string as-is
+                                    content_data = {'rawContent': content_str}
+                        elif isinstance(content_str, dict):
+                            content_data = content_str
+                    
+                    # Merge content_data into item for easier access
+                    if content_data:
+                        item = {**item, **content_data}
+                    
+                    # Try to extract title from various possible fields (check more variations)
+                    normalized_item['title'] = (
+                        item.get('title') or 
+                        item.get('headline') or 
+                        item.get('headlineText') or
+                        item.get('headlineTextFull') or
+                        item.get('titleText') or
+                        item.get('longTitle') or
+                        str(item.get('uuid', '')) if item.get('uuid') else
+                        str(item.get('id', '')) if item.get('id') else
+                        f"Article {len(enriched_news) + 1}"
+                    )
+                    
+                    # Try to extract publisher/source (check more variations)
+                    normalized_item['publisher'] = (
+                        item.get('publisher') or 
+                        item.get('source') or 
+                        item.get('provider') or
+                        item.get('providerName') or
+                        item.get('publisherName') or
+                        item.get('publisherDisplayName') or
+                        item.get('providerDisplayName') or
+                        "Unknown"
+                    )
+                    
+                    # Try to extract summary/description - check ALL possible fields
+                    normalized_item['summary'] = (
+                        item.get('summary') or 
+                        item.get('description') or 
+                        item.get('text') or
+                        item.get('body') or
+                        item.get('excerpt') or
+                        item.get('snippet') or
+                        item.get('preview') or
+                        item.get('rawContent') or
+                        ""
+                    )
+                    
+                    # Try to extract link - check multiple URL fields
+                    normalized_item['link'] = (
+                        item.get('link') or 
+                        item.get('url') or
+                        item.get('canonicalUrl') or
+                        item.get('canonical_url') or
+                        item.get('webUrl') or
+                        item.get('web_url') or
+                        item.get('clickThroughUrl') or
+                        item.get('clickThroughUrl.raw') or
+                        ""
+                    )
+                    
+                    # Try to extract publish time
+                    normalized_item['providerPublishTime'] = (
+                        item.get('providerPublishTime') or
+                        item.get('pubDate') or
+                        item.get('publishedAt') or
+                        item.get('time') or
+                        item.get('publishTime') or
+                        item.get('timestamp') or
+                        item.get('created') or
+                        item.get('publishTime.raw') or
+                        None
+                    )
+                    
+                    # Store the raw item for debugging
+                    normalized_item['_raw'] = item
+                    
+                    # Combine title and summary for sentiment analysis
+                    text_for_sentiment = normalized_item['title']
+                    if normalized_item['summary']:
+                        text_for_sentiment += " " + normalized_item['summary']
+                    
+                    # Only analyze if we have some text
+                    if text_for_sentiment.strip():
+                        sentiment = analyze_sentiment(text_for_sentiment)
+                        normalized_item['sentiment'] = sentiment
+                    else:
+                        normalized_item['sentiment'] = {"sentiment": "NEUTRAL", "score": 0.0, "confidence": 0.0}
+                    
+                    enriched_news.append(normalized_item)
+                
+                return enriched_news
+            return []
+        
+        # If it's a dict with a 'news' key
+        if isinstance(news, dict) and 'news' in news:
+            news_list = news['news']
+            if isinstance(news_list, list) and len(news_list) > 0:
+                enriched_news = []
+                for item in news_list[:max_items]:
+                    normalized_item = {}
+                    normalized_item['title'] = item.get('title') or item.get('headline') or "Article"
+                    normalized_item['publisher'] = item.get('publisher') or item.get('source') or "Unknown"
+                    normalized_item['summary'] = item.get('summary') or item.get('description') or ""
+                    normalized_item['link'] = item.get('link') or item.get('url') or ""
+                    normalized_item['providerPublishTime'] = item.get('providerPublishTime') or item.get('pubDate')
+                    
+                    text_for_sentiment = normalized_item['title']
+                    if normalized_item['summary']:
+                        text_for_sentiment += " " + normalized_item['summary']
+                    
+                    if text_for_sentiment.strip():
+                        sentiment = analyze_sentiment(text_for_sentiment)
+                        normalized_item['sentiment'] = sentiment
+                    else:
+                        normalized_item['sentiment'] = {"sentiment": "NEUTRAL", "score": 0.0, "confidence": 0.0}
+                    
+                    enriched_news.append(normalized_item)
+                
+                return enriched_news
+        
+        return []
+    except Exception as e:
+        # Log the error for debugging but don't crash
+        import sys
+        print(f"Error fetching news for {ticker}: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
+        return []
+
+# --- Risk Management ---
+def calculate_position_size(account_size: float, risk_percent: float, entry_price: float, stop_loss: float) -> dict:
+    """Calculate position size based on risk management."""
+    if entry_price <= 0 or stop_loss <= 0 or risk_percent <= 0:
+        return {"shares": 0, "dollar_risk": 0, "position_value": 0}
+    
+    risk_per_share = abs(entry_price - stop_loss)
+    if risk_per_share == 0:
+        return {"shares": 0, "dollar_risk": 0, "position_value": 0}
+    
+    dollar_risk = account_size * (risk_percent / 100.0)
+    shares = dollar_risk / risk_per_share
+    position_value = shares * entry_price
+    
+    return {
+        "shares": round(shares, 2),
+        "dollar_risk": round(dollar_risk, 2),
+        "position_value": round(position_value, 2),
+        "risk_per_share": round(risk_per_share, 2)
+    }
+
+def calculate_atr_stop_loss(df: pd.DataFrame, atr_multiplier: float = 2.0, is_long: bool = True) -> float:
+    """Calculate ATR-based stop loss."""
+    if df.empty or len(df) < 14:
+        return 0.0
+    
+    # Calculate ATR (Average True Range)
+    high_low = df["high"] - df["low"]
+    high_close = abs(df["high"] - df["close"].shift(1))
+    low_close = abs(df["low"] - df["close"].shift(1))
+    true_range = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+    atr = true_range.rolling(window=14).mean().iloc[-1]
+    
+    current_price = float(df["close"].iloc[-1])
+    
+    if is_long:
+        stop_loss = current_price - (atr * atr_multiplier)
+    else:
+        stop_loss = current_price + (atr * atr_multiplier)
+    
+    return round(stop_loss, 2)
+
+def calculate_risk_reward(entry_price: float, stop_loss: float, target_price: float) -> dict:
+    """Calculate risk/reward ratio."""
+    if entry_price <= 0:
+        return {"risk_reward_ratio": 0, "risk": 0, "reward": 0, "risk_pct": 0, "reward_pct": 0}
+    
+    risk = abs(entry_price - stop_loss)
+    reward = abs(target_price - entry_price)
+    
+    risk_pct = (risk / entry_price) * 100
+    reward_pct = (reward / entry_price) * 100
+    
+    risk_reward_ratio = reward / risk if risk > 0 else 0
+    
+    return {
+        "risk_reward_ratio": round(risk_reward_ratio, 2),
+        "risk": round(risk, 2),
+        "reward": round(reward, 2),
+        "risk_pct": round(risk_pct, 2),
+        "reward_pct": round(reward_pct, 2)
+    }
+
+# --- Signal Generator ---
+def generate_trading_signal(df: pd.DataFrame) -> dict:
+    """Generate trading signal by combining multiple indicators."""
+    if df.empty or len(df) < 200:
+        return {"signal": "NEUTRAL", "strength": 0, "details": {}}
+    
+    d = df.copy()
+    d["SMA20"] = _sma(d["close"], SMA_SHORT)
+    d["SMA200"] = _sma(d["close"], SMA_LONG)
+    
+    last = d.iloc[-1]
+    prev = d.iloc[-2] if len(d) > 1 else last
+    
+    # Calculate indicators
+    rsi = _rsi(d["close"], window=14)
+    rsi_val = float(rsi.iloc[-1]) if not pd.isna(rsi.iloc[-1]) else 50
+    
+    macd_line, signal_line, histogram = _macd(d["close"])
+    macd_val = float(macd_line.iloc[-1]) if not pd.isna(macd_line.iloc[-1]) else 0
+    signal_val = float(signal_line.iloc[-1]) if not pd.isna(signal_line.iloc[-1]) else 0
+    hist_val = float(histogram.iloc[-1]) if not pd.isna(histogram.iloc[-1]) else 0
+    
+    sma20_val = float(last["SMA20"])
+    sma200_val = float(last["SMA200"])
+    price = float(last["close"])
+    
+    # Signal scoring (0-10)
+    score = 0
+    signal_type = "NEUTRAL"
+    details = {}
+    
+    # SMA Cross (0-3 points)
+    if sma20_val > sma200_val:
+        score += 2
+        details["sma_trend"] = "Bullish"
+        if prev["SMA20"] <= prev["SMA200"]:
+            score += 1  # Golden Cross bonus
+            details["sma_cross"] = "Golden Cross"
+    elif sma20_val < sma200_val:
+        score -= 2
+        details["sma_trend"] = "Bearish"
+        if prev["SMA20"] >= prev["SMA200"]:
+            score -= 1  # Death Cross penalty
+            details["sma_cross"] = "Death Cross"
+    else:
+        details["sma_trend"] = "Neutral"
+    
+    # RSI (0-2 points)
+    if 30 < rsi_val < 70:
+        score += 1
+        details["rsi"] = f"Neutral ({rsi_val:.1f})"
+    elif rsi_val < 30:
+        score += 2
+        details["rsi"] = f"Oversold ({rsi_val:.1f})"
+    elif rsi_val > 70:
+        score -= 2
+        details["rsi"] = f"Overbought ({rsi_val:.1f})"
+    
+    # MACD (0-2 points)
+    if macd_val > signal_val and hist_val > 0:
+        score += 2
+        details["macd"] = "Bullish"
+    elif macd_val < signal_val and hist_val < 0:
+        score -= 2
+        details["macd"] = "Bearish"
+    else:
+        details["macd"] = "Neutral"
+    
+    # Volume confirmation (0-1 point)
+    if not d["volume"].isna().all():
+        vol_sma = _volume_sma(d["volume"], window=20)
+        vol_ratio = float(last["volume"]) / float(vol_sma.iloc[-1]) if not pd.isna(vol_sma.iloc[-1]) and vol_sma.iloc[-1] > 0 else 1
+        if vol_ratio > 1.2:
+            score += 1
+            details["volume"] = f"Above average ({vol_ratio:.2f}x)"
+        else:
+            details["volume"] = f"Below average ({vol_ratio:.2f}x)"
+    
+    # Determine signal
+    if score >= 6:
+        signal_type = "STRONG_BUY"
+    elif score >= 3:
+        signal_type = "BUY"
+    elif score <= -6:
+        signal_type = "STRONG_SELL"
+    elif score <= -3:
+        signal_type = "SELL"
+    else:
+        signal_type = "NEUTRAL"
+    
+    # Calculate entry/exit recommendations
+    entry_price = price
+    stop_loss = calculate_atr_stop_loss(d, atr_multiplier=2.0, is_long=(score > 0))
+    
+    # Target price based on support/resistance
+    sr_levels = find_support_resistance(d)
+    if score > 0:  # Buy signal
+        resistance_levels = sr_levels.get("resistance", [])
+        if resistance_levels:
+            target_price = min([r["price"] for r in resistance_levels if r["price"] > price], default=price * 1.1)
+        else:
+            target_price = price * 1.1
+    else:  # Sell signal
+        support_levels = sr_levels.get("support", [])
+        if support_levels:
+            target_price = max([s["price"] for s in support_levels if s["price"] < price], default=price * 0.9)
+        else:
+            target_price = price * 0.9
+    
+    risk_reward = calculate_risk_reward(entry_price, stop_loss, target_price)
+    
+    return {
+        "signal": signal_type,
+        "strength": min(max(score, -10), 10),  # Clamp to -10 to 10
+        "score": score,
+        "details": details,
+        "entry_price": round(entry_price, 2),
+        "stop_loss": round(stop_loss, 2),
+        "target_price": round(target_price, 2),
+        "risk_reward": risk_reward,
+        "current_price": round(price, 2)
+    }
+
+# --- Win Rate Analytics ---
+def analyze_strategy_performance(journal: list, start: date, end: date, mode: str) -> dict:
+    """Analyze trading strategy performance from journal."""
+    if not journal:
+        return {}
+    
+    # Filter trades in date range
+    trades = [t for t in journal if start <= pd.to_datetime(t.get("date", "2000-01-01")).date() <= end]
+    
+    if not trades:
+        return {}
+    
+    # Calculate metrics
+    total_trades = len(trades)
+    buy_trades = [t for t in trades if t.get("type") == "Buy"]
+    sell_trades = [t for t in trades if t.get("type") == "Sell"]
+    
+    # Calculate P&L for completed trades (pairs of buy/sell)
+    completed_trades = []
+    for buy in buy_trades:
+        # Find corresponding sell
+        buy_date = pd.to_datetime(buy.get("date", "2000-01-01"))
+        matching_sells = [s for s in sell_trades 
+                         if s.get("ticker") == buy.get("ticker") 
+                         and pd.to_datetime(s.get("date", "2000-01-01")) > buy_date]
+        
+        if matching_sells:
+            sell = min(matching_sells, key=lambda x: pd.to_datetime(x.get("date", "2000-01-01")))
+            pnl = (sell.get("price", 0) - buy.get("price", 0)) * buy.get("shares", 0)
+            pnl_pct = ((sell.get("price", 0) - buy.get("price", 0)) / buy.get("price", 0)) * 100 if buy.get("price", 0) > 0 else 0
+            completed_trades.append({
+                "ticker": buy.get("ticker"),
+                "pnl": pnl,
+                "pnl_pct": pnl_pct,
+                "entry": buy.get("price", 0),
+                "exit": sell.get("price", 0),
+                "hold_days": (pd.to_datetime(sell.get("date", "2000-01-01")) - buy_date).days
+            })
+    
+    if not completed_trades:
+        return {
+            "total_trades": total_trades,
+            "completed_trades": 0,
+            "win_rate": 0,
+            "avg_return": 0
+        }
+    
+    winning_trades = [t for t in completed_trades if t["pnl"] > 0]
+    losing_trades = [t for t in completed_trades if t["pnl"] <= 0]
+    
+    win_rate = (len(winning_trades) / len(completed_trades)) * 100 if completed_trades else 0
+    avg_return = sum(t["pnl_pct"] for t in completed_trades) / len(completed_trades) if completed_trades else 0
+    avg_win = sum(t["pnl_pct"] for t in winning_trades) / len(winning_trades) if winning_trades else 0
+    avg_loss = sum(t["pnl_pct"] for t in losing_trades) / len(losing_trades) if losing_trades else 0
+    
+    # Best and worst trades
+    best_trade = max(completed_trades, key=lambda x: x["pnl_pct"]) if completed_trades else None
+    worst_trade = min(completed_trades, key=lambda x: x["pnl_pct"]) if completed_trades else None
+    
+    # Performance by ticker
+    ticker_performance = {}
+    for trade in completed_trades:
+        ticker = trade["ticker"]
+        if ticker not in ticker_performance:
+            ticker_performance[ticker] = {"trades": 0, "wins": 0, "total_pnl": 0}
+        ticker_performance[ticker]["trades"] += 1
+        if trade["pnl"] > 0:
+            ticker_performance[ticker]["wins"] += 1
+        ticker_performance[ticker]["total_pnl"] += trade["pnl_pct"]
+    
+    return {
+        "total_trades": total_trades,
+        "completed_trades": len(completed_trades),
+        "win_rate": round(win_rate, 2),
+        "avg_return": round(avg_return, 2),
+        "avg_win": round(avg_win, 2),
+        "avg_loss": round(avg_loss, 2),
+        "best_trade": best_trade,
+        "worst_trade": worst_trade,
+        "ticker_performance": ticker_performance,
+        "total_pnl": sum(t["pnl"] for t in completed_trades)
+    }
 
 # --- Lazy imports for data providers ---
 @lru_cache(maxsize=1)
@@ -1364,9 +1902,9 @@ ui_glow_patch.apply()  # apply glow after set_page_config
 st.title(f"TraderQ SMA 20/200 Tracker — {APP_VERSION}")
 
 # Main tabs
-tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs([
     "📈 Tracker", "🔔 Alerts", "📊 Cross History", "💼 Portfolio", "🧪 Backtesting",
-    "📰 News", "📐 Patterns", "🔗 Correlation", "📝 Journal"
+    "📰 News", "📐 Patterns", "🔗 Correlation", "📝 Journal", "⚡ Signals", "🛡️ Risk"
 ])
 
 # Sidebar controls
@@ -2036,17 +2574,213 @@ with tab6:
     news_ticker = st.selectbox("Select Ticker for News", selected or universe, key="news_ticker")
     
     if st.button("Fetch News", key="fetch_news"):
-        news_items = fetch_news(news_ticker, max_items=10)
+        with st.spinner(f"Fetching news for {news_ticker}..."):
+            news_items = fetch_news(news_ticker, max_items=10)
+        
         if news_items:
-            for item in news_items:
-                with st.expander(f"**{item.get('title', 'No title')}** - {item.get('publisher', 'Unknown')}"):
-                    st.write(f"**Published:** {item.get('providerPublishTime', 'Unknown')}")
-                    if item.get('link'):
-                        st.markdown(f"[Read Article]({item['link']})")
-                    if item.get('summary'):
-                        st.write(item['summary'])
+            st.success(f"Found {len(news_items)} news articles")
+            
+            # Calculate individual sentiment counts
+            bullish_count = sum(1 for item in news_items if item.get('sentiment', {}).get('sentiment') == 'BULLISH')
+            bearish_count = sum(1 for item in news_items if item.get('sentiment', {}).get('sentiment') == 'BEARISH')
+            neutral_count = len(news_items) - bullish_count - bearish_count
+            
+            # Calculate overall combined sentiment
+            total_bullish_score = sum(item.get('sentiment', {}).get('score', 0) for item in news_items if item.get('sentiment', {}).get('sentiment') == 'BULLISH')
+            total_bearish_score = sum(abs(item.get('sentiment', {}).get('score', 0)) for item in news_items if item.get('sentiment', {}).get('sentiment') == 'BEARISH')
+            total_confidence = sum(item.get('sentiment', {}).get('confidence', 0) for item in news_items) / len(news_items) if news_items else 0
+            
+            # Determine overall sentiment
+            if bullish_count > bearish_count and bullish_count > neutral_count:
+                overall_sentiment = "🟢 BULLISH"
+                overall_color = "green"
+            elif bearish_count > bullish_count and bearish_count > neutral_count:
+                overall_sentiment = "🔴 BEARISH"
+                overall_color = "red"
+            else:
+                overall_sentiment = "⚪ NEUTRAL"
+                overall_color = "gray"
+            
+            # Overall sentiment indicator (prominent)
+            st.markdown("---")
+            st.markdown(f"### 📊 Overall News Sentiment for {news_ticker}")
+            overall_col1, overall_col2, overall_col3 = st.columns([2, 1, 1])
+            with overall_col1:
+                st.markdown(f"<h2 style='color:{overall_color};text-align:center;'>{overall_sentiment}</h2>", unsafe_allow_html=True)
+            with overall_col2:
+                sentiment_score_pct = ((bullish_count - bearish_count) / len(news_items) * 100) if news_items else 0
+                delta_label = "Positive" if bullish_count > bearish_count else "Negative" if bearish_count > bullish_count else "Neutral"
+                st.metric("Sentiment Score", f"{sentiment_score_pct:.0f}%", delta=delta_label)
+            with overall_col3:
+                st.metric("Confidence", f"{total_confidence * 100:.0f}%")
+            
+            # Individual breakdown
+            st.markdown("---")
+            st.markdown("### 📈 Sentiment Breakdown")
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Total Articles", len(news_items))
+            with col2:
+                st.metric("🟢 Bullish", bullish_count, delta=f"{bullish_count}/{len(news_items)}")
+            with col3:
+                st.metric("🔴 Bearish", bearish_count, delta=f"{bearish_count}/{len(news_items)}")
+            with col4:
+                st.metric("⚪ Neutral", neutral_count, delta=f"{neutral_count}/{len(news_items)}")
+            
+            st.divider()
+            
+            # Display each article
+            for i, item in enumerate(news_items, 1):
+                # Handle different news item formats
+                title = item.get('title') or item.get('headline') or f"Article {i}"
+                publisher = item.get('publisher') or item.get('source') or item.get('provider') or "Unknown"
+                
+                # Get sentiment
+                sentiment_data = item.get('sentiment', {})
+                sentiment = sentiment_data.get('sentiment', 'NEUTRAL')
+                confidence = sentiment_data.get('confidence', 0.0)
+                
+                # Color code by sentiment
+                if sentiment == 'BULLISH':
+                    sentiment_emoji = "🟢"
+                    sentiment_color = "green"
+                elif sentiment == 'BEARISH':
+                    sentiment_emoji = "🔴"
+                    sentiment_color = "red"
+                else:
+                    sentiment_emoji = "⚪"
+                    sentiment_color = "gray"
+                
+                # Format publish time
+                pub_time = item.get('providerPublishTime') or item.get('pubDate') or item.get('publishedAt')
+                if pub_time:
+                    try:
+                        if isinstance(pub_time, (int, float)):
+                            from datetime import datetime
+                            pub_time = datetime.fromtimestamp(pub_time).strftime("%Y-%m-%d %H:%M:%S")
+                        elif isinstance(pub_time, str) and len(pub_time) > 10:
+                            pub_time = pub_time[:19]  # Truncate if too long
+                    except Exception:
+                        pass
+                
+                # Create expander with sentiment badge
+                expander_title = f"{sentiment_emoji} **{title}** - {publisher}"
+                
+                with st.expander(expander_title, expanded=True):  # Expand all articles by default
+                    # Sentiment badge
+                    sentiment_col1, sentiment_col2 = st.columns([3, 1])
+                    with sentiment_col1:
+                        st.markdown(f"**Sentiment:** <span style='color:{sentiment_color};font-weight:bold'>{sentiment_emoji} {sentiment}</span> (Confidence: {confidence*100:.0f}%)", unsafe_allow_html=True)
+                    with sentiment_col2:
+                        link = item.get('link') or item.get('url')
+                        if link:
+                            st.markdown(f"[🔗 Read Full Article]({link})", unsafe_allow_html=True)
+                        else:
+                            st.caption("No link available")
+                    
+                    if pub_time:
+                        st.write(f"**Published:** {pub_time}")
+                    
+                    # Article summary/description - try multiple fields
+                    summary = item.get('summary') or item.get('description') or item.get('text') or item.get('content')
+                    if summary and len(summary.strip()) > 10:  # Only show if meaningful
+                        st.write("**Summary:**")
+                        st.write(summary)
+                    else:
+                        # If no summary, try to get more info from the raw item
+                        raw_text = str(item.get('rawText', '')) or str(item.get('text', ''))
+                        if raw_text and len(raw_text.strip()) > 10:
+                            st.write("**Content:**")
+                            st.write(raw_text[:500] + "..." if len(raw_text) > 500 else raw_text)
+                        else:
+                            st.info("💡 No summary available in the API response. Click the link above to read the full article on Yahoo Finance.")
+                    
+                    # Show sentiment details
+                    if sentiment_data.get('bullish_keywords', 0) > 0 or sentiment_data.get('bearish_keywords', 0) > 0:
+                        st.caption(f"📊 Analysis: {sentiment_data.get('bullish_keywords', 0)} bullish keywords, {sentiment_data.get('bearish_keywords', 0)} bearish keywords")
+                    elif title and len(title) > 5:  # If we only have title, analyze it
+                        title_sentiment = analyze_sentiment(title)
+                        if title_sentiment.get('bullish_keywords', 0) > 0 or title_sentiment.get('bearish_keywords', 0) > 0:
+                            st.caption(f"📊 Title Analysis: {title_sentiment.get('bullish_keywords', 0)} bullish, {title_sentiment.get('bearish_keywords', 0)} bearish keywords")
+                    
+                    # Debug: Show raw data structure (collapsed)
+                    with st.expander("🔍 Debug: Raw Article Data", expanded=False):
+                        st.json(item)
         else:
-            st.info(f"No news found for {news_ticker}")
+            st.warning(f"❌ No news found for {news_ticker}")
+            st.write("**Possible reasons:**")
+            st.write("- Yahoo Finance API may not have news for this ticker")
+            st.write("- Network connectivity issues")
+            st.write("- Ticker symbol format issue (try without ^ for indices)")
+            
+            # Try alternative ticker format
+            st.write("\n**💡 Suggestions:**")
+            st.write(f"- Try: **{news_ticker.replace('^', '')}** (without ^)")
+            st.write("- Try major tickers: **AAPL**, **TSLA**, **MSFT**, **SPY**")
+            st.write("- Check the browser console (F12) for error messages")
+            
+            # Debug info
+            with st.expander("🔍 Debug Information", expanded=True):
+                st.write("**Testing news fetch...**")
+                try:
+                    yf = _yf()
+                    test_stock = yf.Ticker(news_ticker)
+                    st.write(f"✅ Ticker object created for: {news_ticker}")
+                    st.write(f"Has 'news' attribute: {hasattr(test_stock, 'news')}")
+                    
+                    if hasattr(test_stock, 'news'):
+                        try:
+                            test_news = test_stock.news
+                            st.write(f"**News type:** {type(test_news)}")
+                            
+                            if test_news is None:
+                                st.error("❌ News is None")
+                            elif isinstance(test_news, list):
+                                st.write(f"**News list length:** {len(test_news)}")
+                                if len(test_news) > 0:
+                                    st.success(f"✅ Found {len(test_news)} news items!")
+                                    st.write(f"**First item type:** {type(test_news[0])}")
+                                    
+                                    if isinstance(test_news[0], dict):
+                                        keys = list(test_news[0].keys())
+                                        st.write(f"**First item keys ({len(keys)} total):** {', '.join(keys[:20])}")
+                                        if len(keys) > 20:
+                                            st.caption(f"... and {len(keys) - 20} more keys")
+                                        
+                                        # Show sample of first item
+                                        st.write("**First item sample:**")
+                                        sample = {k: str(v)[:100] for k, v in list(test_news[0].items())[:10]}
+                                        st.json(sample)
+                                    else:
+                                        st.write(f"**First item:** {str(test_news[0])[:200]}")
+                                else:
+                                    st.warning("⚠️ News list is empty")
+                            else:
+                                st.write(f"**News is not a list, it's:** {type(test_news)}")
+                                st.write(f"**Value:** {str(test_news)[:200]}")
+                        except Exception as e:
+                            st.error(f"❌ Error accessing news: {e}")
+                            import traceback
+                            st.code(traceback.format_exc())
+                    
+                    # Also try alternative tickers
+                    st.write("\n**💡 Try these test tickers:**")
+                    test_tickers = ["AAPL", "TSLA", "MSFT", "SPY"]
+                    for test_t in test_tickers:
+                        if st.button(f"Test {test_t}", key=f"test_{test_t}"):
+                            try:
+                                test_stock2 = yf.Ticker(test_t)
+                                test_news2 = test_stock2.news
+                                if test_news2 and len(test_news2) > 0:
+                                    st.success(f"✅ {test_t} has {len(test_news2)} news items!")
+                                else:
+                                    st.warning(f"⚠️ {test_t} has no news")
+                            except Exception as e2:
+                                st.error(f"❌ Error with {test_t}: {e2}")
+                except Exception as e:
+                    st.error(f"❌ Error creating ticker: {e}")
+                    import traceback
+                    st.code(traceback.format_exc())
 
 # ===== TAB 7: PATTERNS =====
 with tab7:
@@ -2185,5 +2919,237 @@ with tab9:
                 st.metric("Sell Trades", sell_trades)
     else:
         st.info("No trades logged yet. Add your first trade above.")
+    
+    # Win Rate Analytics
+    st.divider()
+    st.subheader("📊 Strategy Performance Analytics")
+    
+    if journal:
+        analytics_start = st.date_input("Analysis Start Date", value=start_d, key="analytics_start")
+        analytics_end = st.date_input("Analysis End Date", value=end_d, key="analytics_end")
+        
+        if st.button("Analyze Performance", key="analyze_performance"):
+            performance = analyze_strategy_performance(journal, analytics_start, analytics_end, mode)
+            
+            if performance:
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("Total Trades", performance.get("total_trades", 0))
+                with col2:
+                    st.metric("Completed Trades", performance.get("completed_trades", 0))
+                with col3:
+                    win_rate = performance.get("win_rate", 0)
+                    st.metric("Win Rate", f"{win_rate:.1f}%", 
+                             delta=f"{win_rate - 50:.1f}%" if win_rate > 50 else None)
+                with col4:
+                    avg_return = performance.get("avg_return", 0)
+                    st.metric("Avg Return", f"{avg_return:.2f}%",
+                             delta=f"{avg_return:.2f}%" if avg_return > 0 else None)
+                
+                col5, col6 = st.columns(2)
+                with col5:
+                    avg_win = performance.get("avg_win", 0)
+                    st.metric("Avg Win", f"{avg_win:.2f}%")
+                with col6:
+                    avg_loss = performance.get("avg_loss", 0)
+                    st.metric("Avg Loss", f"{avg_loss:.2f}%")
+                
+                # Best and worst trades
+                if performance.get("best_trade"):
+                    best = performance["best_trade"]
+                    st.success(f"🏆 Best Trade: {best['ticker']} - {best['pnl_pct']:.2f}% return")
+                
+                if performance.get("worst_trade"):
+                    worst = performance["worst_trade"]
+                    st.error(f"⚠️ Worst Trade: {worst['ticker']} - {worst['pnl_pct']:.2f}% return")
+                
+                # Performance by ticker
+                ticker_perf = performance.get("ticker_performance", {})
+                if ticker_perf:
+                    st.subheader("Performance by Ticker")
+                    ticker_data = []
+                    for ticker, stats in ticker_perf.items():
+                        win_rate_ticker = (stats["wins"] / stats["trades"] * 100) if stats["trades"] > 0 else 0
+                        ticker_data.append({
+                            "Ticker": ticker,
+                            "Trades": stats["trades"],
+                            "Wins": stats["wins"],
+                            "Win Rate": f"{win_rate_ticker:.1f}%",
+                            "Total Return": f"{stats['total_pnl']:.2f}%"
+                        })
+                    ticker_df = pd.DataFrame(ticker_data)
+                    st.dataframe(ticker_df, use_container_width=True, hide_index=True)
+            else:
+                st.info("No completed trades in the selected date range.")
 
+# ===== TAB 10: SIGNAL GENERATOR =====
+with tab10:
+    st.header("⚡ Trading Signal Generator")
+    st.markdown("Get AI-powered buy/sell signals by combining multiple indicators.")
+    
+    signal_ticker = st.selectbox("Select Ticker", selected or universe, key="signal_ticker")
+    
+    if st.button("Generate Signal", key="generate_signal"):
+        df = load_data(signal_ticker, start_d, end_d, mode, interval=interval)
+        if not df.empty:
+            signal = generate_trading_signal(df)
+            
+            # Display signal
+            signal_type = signal.get("signal", "NEUTRAL")
+            strength = signal.get("strength", 0)
+            score = signal.get("score", 0)
+            
+            # Color code signal
+            if "BUY" in signal_type:
+                signal_color = "🟢"
+                signal_emoji = "📈"
+            elif "SELL" in signal_type:
+                signal_color = "🔴"
+                signal_emoji = "📉"
+            else:
+                signal_color = "🟡"
+                signal_emoji = "➡️"
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Signal", f"{signal_emoji} {signal_type}", delta=f"Score: {score}")
+            with col2:
+                st.metric("Strength", f"{abs(strength)}/10", 
+                         delta="Strong" if abs(strength) >= 6 else "Moderate" if abs(strength) >= 3 else "Weak")
+            with col3:
+                st.metric("Current Price", f"${signal.get('current_price', 0):.2f}")
+            
+            # Signal details
+            st.subheader("Signal Details")
+            details = signal.get("details", {})
+            detail_cols = st.columns(2)
+            with detail_cols[0]:
+                st.write("**SMA Trend:**", details.get("sma_trend", "N/A"))
+                if "sma_cross" in details:
+                    st.success(f"**Cross:** {details['sma_cross']}")
+            with detail_cols[1]:
+                st.write("**RSI:**", details.get("rsi", "N/A"))
+                st.write("**MACD:**", details.get("macd", "N/A"))
+                st.write("**Volume:**", details.get("volume", "N/A"))
+            
+            # Entry/Exit recommendations
+            st.subheader("Entry/Exit Recommendations")
+            rec_cols = st.columns(3)
+            with rec_cols[0]:
+                st.metric("Entry Price", f"${signal.get('entry_price', 0):.2f}")
+            with rec_cols[1]:
+                st.metric("Stop Loss", f"${signal.get('stop_loss', 0):.2f}")
+            with rec_cols[2]:
+                st.metric("Target Price", f"${signal.get('target_price', 0):.2f}")
+            
+            # Risk/Reward
+            rr = signal.get("risk_reward", {})
+            if rr:
+                st.subheader("Risk/Reward Analysis")
+                rr_cols = st.columns(4)
+                with rr_cols[0]:
+                    st.metric("Risk/Reward", f"{rr.get('risk_reward_ratio', 0):.2f}:1")
+                with rr_cols[1]:
+                    st.metric("Risk", f"${rr.get('risk', 0):.2f} ({rr.get('risk_pct', 0):.2f}%)")
+                with rr_cols[2]:
+                    st.metric("Reward", f"${rr.get('reward', 0):.2f} ({rr.get('reward_pct', 0):.2f}%)")
+                with rr_cols[3]:
+                    if rr.get('risk_reward_ratio', 0) >= 2:
+                        st.success("✅ Good R:R")
+                    elif rr.get('risk_reward_ratio', 0) >= 1:
+                        st.warning("⚠️ Acceptable R:R")
+                    else:
+                        st.error("❌ Poor R:R")
+        else:
+            st.error(f"No data available for {signal_ticker}")
+
+# ===== TAB 11: RISK MANAGEMENT =====
+with tab11:
+    st.header("🛡️ Risk Management Dashboard")
+    st.markdown("Calculate position sizes, stop-losses, and risk/reward ratios.")
+    
+    # Position Size Calculator
+    st.subheader("Position Size Calculator")
+    risk_col1, risk_col2 = st.columns(2)
+    with risk_col1:
+        account_size = st.number_input("Account Size ($)", min_value=0.0, value=10000.0, step=1000.0, key="account_size")
+        risk_percent = st.slider("Risk Per Trade (%)", min_value=0.1, max_value=10.0, value=2.0, step=0.1, key="risk_percent")
+    with risk_col2:
+        entry_price = st.number_input("Entry Price ($)", min_value=0.0, value=100.0, step=0.01, key="entry_price")
+        stop_loss_price = st.number_input("Stop Loss ($)", min_value=0.0, value=95.0, step=0.01, key="stop_loss_price")
+    
+    if st.button("Calculate Position Size", key="calc_position"):
+        position = calculate_position_size(account_size, risk_percent, entry_price, stop_loss_price)
+        
+        if position["shares"] > 0:
+            pos_cols = st.columns(3)
+            with pos_cols[0]:
+                st.metric("Shares to Buy", f"{position['shares']:.2f}")
+            with pos_cols[1]:
+                st.metric("Position Value", f"${position['position_value']:,.2f}")
+            with pos_cols[2]:
+                st.metric("Dollar Risk", f"${position['dollar_risk']:,.2f}")
+            
+            st.info(f"💡 Risk per share: ${position['risk_per_share']:.2f}")
+        else:
+            st.error("Invalid inputs. Check entry price and stop loss.")
+    
+    # ATR-based Stop Loss Calculator
+    st.divider()
+    st.subheader("ATR-Based Stop Loss Calculator")
+    atr_ticker = st.selectbox("Select Ticker for ATR Stop", selected or universe, key="atr_ticker")
+    atr_multiplier = st.slider("ATR Multiplier", min_value=1.0, max_value=5.0, value=2.0, step=0.5, key="atr_mult")
+    is_long_position = st.radio("Position Type", ["Long", "Short"], key="position_type") == "Long"
+    
+    if st.button("Calculate ATR Stop Loss", key="calc_atr_stop"):
+        df = load_data(atr_ticker, start_d, end_d, mode, interval=interval)
+        if not df.empty:
+            atr_stop = calculate_atr_stop_loss(df, atr_multiplier, is_long_position)
+            current_price = float(df["close"].iloc[-1])
+            
+            atr_cols = st.columns(2)
+            with atr_cols[0]:
+                st.metric("Current Price", f"${current_price:.2f}")
+            with atr_cols[1]:
+                st.metric("ATR Stop Loss", f"${atr_stop:.2f}")
+            
+            stop_distance = abs(current_price - atr_stop)
+            stop_pct = (stop_distance / current_price) * 100
+            st.info(f"Stop loss is ${stop_distance:.2f} ({stop_pct:.2f}%) away from current price")
+        else:
+            st.error(f"No data available for {atr_ticker}")
+    
+    # Risk/Reward Calculator
+    st.divider()
+    st.subheader("Risk/Reward Ratio Calculator")
+    rr_col1, rr_col2, rr_col3 = st.columns(3)
+    with rr_col1:
+        rr_entry = st.number_input("Entry Price", min_value=0.0, value=100.0, step=0.01, key="rr_entry")
+    with rr_col2:
+        rr_stop = st.number_input("Stop Loss", min_value=0.0, value=95.0, step=0.01, key="rr_stop")
+    with rr_col3:
+        rr_target = st.number_input("Target Price", min_value=0.0, value=110.0, step=0.01, key="rr_target")
+    
+    if st.button("Calculate Risk/Reward", key="calc_rr"):
+        rr_result = calculate_risk_reward(rr_entry, rr_stop, rr_target)
+        
+        if rr_result["risk_reward_ratio"] > 0:
+            rr_display_cols = st.columns(4)
+            with rr_display_cols[0]:
+                st.metric("Risk/Reward", f"{rr_result['risk_reward_ratio']:.2f}:1")
+            with rr_display_cols[1]:
+                st.metric("Risk", f"${rr_result['risk']:.2f} ({rr_result['risk_pct']:.2f}%)")
+            with rr_display_cols[2]:
+                st.metric("Reward", f"${rr_result['reward']:.2f} ({rr_result['reward_pct']:.2f}%)")
+            with rr_display_cols[3]:
+                if rr_result['risk_reward_ratio'] >= 3:
+                    st.success("✅ Excellent")
+                elif rr_result['risk_reward_ratio'] >= 2:
+                    st.success("✅ Good")
+                elif rr_result['risk_reward_ratio'] >= 1:
+                    st.warning("⚠️ Acceptable")
+                else:
+                    st.error("❌ Poor")
+        else:
+            st.error("Invalid inputs")
 
