@@ -59,7 +59,8 @@ import streamlit as st
 import ui_glow_patch
 import yf_patch  # glow+session patch
 
-APP_VERSION = "v2.2.0"
+APP_VERSION = "v2.3.0"
+# v2.3.0 – Added Supertrend and EMA indicators, integrated Supertrend into AI Recommendations
 # v2.2.0 – AI Recommendations system with comprehensive analysis (SMA, RSI, News Sentiment)
 # v2.1.0 – risk management dashboard, signal generator, win rate analytics, position tracking, market regime detection
 
@@ -874,7 +875,7 @@ def fetch_news(ticker: str, max_items: int = 5) -> list:
 
 # --- AI Recommendation System ---
 def generate_ai_recommendation(ticker: str, df: pd.DataFrame, start: date, end: date, mode: str, interval: str) -> dict:
-    """Generate comprehensive AI trading recommendation based on SMA, News Sentiment, and RSI."""
+    """Generate comprehensive AI trading recommendation based on SMA, RSI, Supertrend, and News Sentiment."""
     if df.empty or len(df) < 200:
         return {"error": "Insufficient data for analysis"}
     
@@ -893,6 +894,40 @@ def generate_ai_recommendation(ticker: str, df: pd.DataFrame, start: date, end: 
     # Calculate RSI
     rsi = _rsi(d["close"], window=14)
     rsi_val = float(rsi.iloc[-1]) if not pd.isna(rsi.iloc[-1]) else 50
+    
+    # Calculate Supertrend
+    supertrend, trend = _supertrend(d, period=10, multiplier=3.0)
+    trend_current = float(trend.iloc[-1]) if not pd.isna(trend.iloc[-1]) else 0
+    trend_prev = float(trend.iloc[-2]) if len(trend) > 1 and not pd.isna(trend.iloc[-2]) else trend_current
+    supertrend_val = float(supertrend.iloc[-1]) if not pd.isna(supertrend.iloc[-1]) else current_price
+    
+    # Analyze Supertrend
+    supertrend_analysis = {}
+    supertrend_score = 0
+    if trend_current > 0:
+        # Uptrend
+        supertrend_analysis["status"] = "Bullish"
+        supertrend_analysis["description"] = f"Supertrend indicates UPTREND - Price is above Supertrend line (${supertrend_val:.2f})"
+        supertrend_score = 2
+        if trend_prev <= 0:
+            # Trend changed from down to up - strong signal
+            supertrend_analysis["status"] = "Bullish Reversal"
+            supertrend_analysis["description"] = "🟢 BULLISH REVERSAL! Supertrend just turned bullish - Strong buy signal"
+            supertrend_score = 3
+    elif trend_current < 0:
+        # Downtrend
+        supertrend_analysis["status"] = "Bearish"
+        supertrend_analysis["description"] = f"Supertrend indicates DOWNTREND - Price is below Supertrend line (${supertrend_val:.2f})"
+        supertrend_score = -2
+        if trend_prev >= 0:
+            # Trend changed from up to down - strong signal
+            supertrend_analysis["status"] = "Bearish Reversal"
+            supertrend_analysis["description"] = "🔴 BEARISH REVERSAL! Supertrend just turned bearish - Strong sell signal"
+            supertrend_score = -3
+    else:
+        supertrend_analysis["status"] = "Neutral"
+        supertrend_analysis["description"] = f"Supertrend is neutral (${supertrend_val:.2f})"
+        supertrend_score = 0
     
     # Analyze SMA Cross
     sma_analysis = {}
@@ -977,7 +1012,7 @@ def generate_ai_recommendation(ticker: str, df: pd.DataFrame, start: date, end: 
         news_score = 0
     
     # Combine scores
-    total_score = sma_score + rsi_score + news_score
+    total_score = sma_score + rsi_score + supertrend_score + news_score
     
     # Determine recommendation
     if total_score >= 5:
@@ -1077,6 +1112,7 @@ def generate_ai_recommendation(ticker: str, df: pd.DataFrame, start: date, end: 
         "total_score": total_score,
         "sma_analysis": sma_analysis,
         "rsi_analysis": rsi_analysis,
+        "supertrend_analysis": supertrend_analysis,
         "news_analysis": news_analysis,
         "entry_price": entry_price,
         "stop_loss": stop_loss,
@@ -1474,6 +1510,61 @@ def _vwap(df: pd.DataFrame, window: int = 20) -> pd.Series:
     typical_price = (df["high"] + df["low"] + df["close"]) / 3
     vwap = (typical_price * df["volume"]).rolling(window=window).sum() / df["volume"].rolling(window=window).sum()
     return vwap
+
+def _atr(df: pd.DataFrame, window: int = 14) -> pd.Series:
+    """Calculate Average True Range."""
+    high_low = df["high"] - df["low"]
+    high_close = np.abs(df["high"] - df["close"].shift())
+    low_close = np.abs(df["low"] - df["close"].shift())
+    ranges = pd.concat([high_low, high_close, low_close], axis=1)
+    true_range = ranges.max(axis=1)
+    return true_range.rolling(window=window).mean()
+
+def _supertrend(df: pd.DataFrame, period: int = 10, multiplier: float = 3.0) -> tuple[pd.Series, pd.Series]:
+    """Calculate Supertrend indicator.
+    Returns: (supertrend_line, trend_direction) where trend_direction is 1 for uptrend, -1 for downtrend."""
+    atr = _atr(df, window=period)
+    hl_avg = (df["high"] + df["low"]) / 2
+    
+    # Initialize bands
+    upper_band = hl_avg + (multiplier * atr)
+    lower_band = hl_avg - (multiplier * atr)
+    
+    # Convert to numpy arrays for iteration
+    upper_values = upper_band.values
+    lower_values = lower_band.values
+    close_values = df["close"].values
+    
+    supertrend_values = np.full(len(df), np.nan)
+    trend_values = np.full(len(df), np.nan)
+    
+    # Calculate Supertrend
+    for i in range(len(df)):
+        if i == 0:
+            supertrend_values[i] = upper_values[i]
+            trend_values[i] = 1
+            continue
+        
+        # Adjust upper band
+        if close_values[i] <= upper_values[i-1]:
+            upper_values[i] = min(upper_values[i], upper_values[i-1])
+        
+        # Adjust lower band
+        if close_values[i] >= lower_values[i-1]:
+            lower_values[i] = max(lower_values[i], lower_values[i-1])
+        
+        # Determine trend
+        if close_values[i] <= supertrend_values[i-1]:
+            supertrend_values[i] = upper_values[i]
+            trend_values[i] = -1
+        else:
+            supertrend_values[i] = lower_values[i]
+            trend_values[i] = 1
+    
+    supertrend = pd.Series(supertrend_values, index=df.index)
+    trend = pd.Series(trend_values, index=df.index)
+    
+    return supertrend, trend
 
 # --- Cross Detection and History ---
 def detect_crosses(df: pd.DataFrame, s20: str = "SMA20", s200: str = "SMA200") -> list:
@@ -1934,6 +2025,7 @@ def load_data(ticker: str, start: date, end: date, mode: str, interval: str = "1
 def make_chart(df: pd.DataFrame, title: str, theme: str, pretouch_pct: float | None,
                show_volume: bool = True, show_rsi: bool = True, show_macd: bool = True,
                show_bollinger: bool = True, show_sma20: bool = True, show_sma200: bool = True,
+               show_ema: bool = False, show_supertrend: bool = False,
                show_support_resistance: bool = False) -> go.Figure:
     if df.empty:
         fig = go.Figure()
@@ -2088,6 +2180,76 @@ def make_chart(df: pd.DataFrame, title: str, theme: str, pretouch_pct: float | N
             x=df.index, y=df["SMA200"], mode="lines", name=f"SMA {SMA_LONG}", 
             line=dict(width=2, color=sma200_color)
         ), row=row, col=1)
+    
+    # Add EMA line if enabled
+    if show_ema:
+        ema20 = _ema(df["close"], window=20)
+        ema_color = "#00a86b" if theme == "Light" else "#00ff88"
+        fig.add_trace(go.Scatter(
+            x=df.index, y=ema20, mode="lines", name="EMA 20",
+            line=dict(width=2, color=ema_color, dash="dot")
+        ), row=row, col=1)
+    
+    # Add Supertrend if enabled
+    if show_supertrend:
+        supertrend, trend = _supertrend(df, period=10, multiplier=3.0)
+        # Create continuous segments for each trend period
+        uptrend_color = "#28a745" if theme == "Light" else "#00ff88"
+        downtrend_color = "#dc3545" if theme == "Light" else "#ff4444"
+        
+        # Find change points in trend
+        trend_changes = (trend != trend.shift(1)).fillna(False)
+        change_indices = df.index[trend_changes].tolist()
+        
+        # Build segments
+        if len(change_indices) > 0:
+            # Create segments: each segment starts at a change point or the beginning
+            segment_boundaries = [df.index[0]] + change_indices + [df.index[-1]]
+            legend_shown_up = False
+            legend_shown_down = False
+            
+            for i in range(len(segment_boundaries) - 1):
+                start_idx = segment_boundaries[i]
+                end_idx = segment_boundaries[i + 1]
+                segment_df = df.loc[start_idx:end_idx]
+                
+                if len(segment_df) > 1:
+                    seg_trend = trend.loc[start_idx]
+                    seg_color = uptrend_color if seg_trend > 0 else downtrend_color
+                    
+                    # Show legend only when trend type changes
+                    show_legend = False
+                    if seg_trend > 0 and not legend_shown_up:
+                        seg_name = "Supertrend (Up)"
+                        legend_shown_up = True
+                        show_legend = True
+                    elif seg_trend < 0 and not legend_shown_down:
+                        seg_name = "Supertrend (Down)"
+                        legend_shown_down = True
+                        show_legend = True
+                    else:
+                        seg_name = ""
+                    
+                    fig.add_trace(go.Scatter(
+                        x=segment_df.index,
+                        y=supertrend.loc[segment_df.index],
+                        mode="lines",
+                        name=seg_name,
+                        line=dict(width=2, color=seg_color),
+                        showlegend=show_legend
+                    ), row=row, col=1)
+        else:
+            # Single trend throughout
+            seg_trend = trend.iloc[0]
+            seg_color = uptrend_color if seg_trend > 0 else downtrend_color
+            seg_name = "Supertrend (Up)" if seg_trend > 0 else "Supertrend (Down)"
+            fig.add_trace(go.Scatter(
+                x=df.index,
+                y=supertrend,
+                mode="lines",
+                name=seg_name,
+                line=dict(width=2, color=seg_color)
+            ), row=row, col=1)
 
     # Bollinger Bands
     if show_bollinger:
@@ -2692,10 +2854,12 @@ st.sidebar.markdown("---")
 st.sidebar.markdown("### 📊 Indicators")
 show_sma20 = st.sidebar.checkbox("Show SMA 20", value=True)
 show_sma200 = st.sidebar.checkbox("Show SMA 200", value=True)
+show_ema = st.sidebar.checkbox("Show EMA", value=False)
 show_volume = st.sidebar.checkbox("Show Volume", value=True)
 show_rsi = st.sidebar.checkbox("Show RSI", value=True)
 show_macd = st.sidebar.checkbox("Show MACD", value=True)
 show_bollinger = st.sidebar.checkbox("Show Bollinger Bands", value=True)
+show_supertrend = st.sidebar.checkbox("Show Supertrend", value=False)
 show_support_resistance = st.sidebar.checkbox("Show Support/Resistance", value=False)
 
 # Date range
@@ -2859,6 +3023,7 @@ with tab1:
                             show_volume=show_volume, show_rsi=show_rsi, 
                             show_macd=show_macd, show_bollinger=show_bollinger,
                             show_sma20=show_sma20, show_sma200=show_sma200,
+                            show_ema=show_ema, show_supertrend=show_supertrend,
                             show_support_resistance=show_support_resistance)
             st.plotly_chart(fig, use_container_width=True, key=f"chart_{t}_{mode}")
             
@@ -2926,7 +3091,7 @@ with tab1:
                     
                     # Analysis breakdown
                     st.markdown("#### 📊 Analysis Breakdown")
-                    analysis_cols = st.columns(3)
+                    analysis_cols = st.columns(4)
                     
                     with analysis_cols[0]:
                         st.markdown("**📈 SMA 20/200 Analysis**")
@@ -2941,6 +3106,13 @@ with tab1:
                         st.markdown(f'<p style="color: {rsi_color};">{recommendation["rsi_analysis"]["description"]}</p>', unsafe_allow_html=True)
                     
                     with analysis_cols[2]:
+                        st.markdown("**📊 Supertrend Analysis**")
+                        supertrend_status = recommendation.get("supertrend_analysis", {}).get("status", "N/A")
+                        supertrend_color = "#00ff88" if "Bullish" in supertrend_status or "Reversal" in supertrend_status else "#f31260" if "Bearish" in supertrend_status else "#b0b0b0"
+                        supertrend_desc = recommendation.get("supertrend_analysis", {}).get("description", "No Supertrend data available")
+                        st.markdown(f'<p style="color: {supertrend_color};">{supertrend_desc}</p>', unsafe_allow_html=True)
+                    
+                    with analysis_cols[3]:
                         st.markdown("**📰 News Sentiment**")
                         news_status = recommendation["news_analysis"]["status"]
                         news_color = "#00ff88" if news_status == "Bullish" else "#f31260" if news_status == "Bearish" else "#b0b0b0"
@@ -2977,6 +3149,7 @@ with tab1:
                     # Summary
                     st.markdown("---")
                     st.markdown("#### 📝 Summary")
+                    supertrend_desc = recommendation.get("supertrend_analysis", {}).get("description", "No Supertrend data available")
                     if recommendation["direction"] == "LONG":
                         summary_text = f"""
                         **Recommendation:** {recommendation["recommendation"]}
@@ -2984,6 +3157,7 @@ with tab1:
                         Based on the analysis:
                         - **SMA Trend:** {recommendation["sma_analysis"]["description"]}
                         - **RSI Condition:** {recommendation["rsi_analysis"]["description"]}
+                        - **Supertrend:** {supertrend_desc}
                         - **News Sentiment:** {recommendation["news_analysis"]["description"]}
                         
                         **Trading Plan:**
@@ -2999,6 +3173,7 @@ with tab1:
                         Based on the analysis:
                         - **SMA Trend:** {recommendation["sma_analysis"]["description"]}
                         - **RSI Condition:** {recommendation["rsi_analysis"]["description"]}
+                        - **Supertrend:** {supertrend_desc}
                         - **News Sentiment:** {recommendation["news_analysis"]["description"]}
                         
                         **Trading Plan:**
@@ -3015,6 +3190,7 @@ with tab1:
                         
                         - **SMA Trend:** {recommendation["sma_analysis"]["description"]}
                         - **RSI Condition:** {recommendation["rsi_analysis"]["description"]}
+                        - **Supertrend:** {supertrend_desc}
                         - **News Sentiment:** {recommendation["news_analysis"]["description"]}
                         """
                     
