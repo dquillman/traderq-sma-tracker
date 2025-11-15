@@ -2408,7 +2408,7 @@ st.markdown("""
         border-radius: 8px !important;
         padding: 0.78125rem 2.34375rem !important;  /* Increased by another 25%: 0.625*1.25=0.78125, 1.875*1.25=2.34375 */
         font-weight: 600 !important;
-        font-size: 1.5625em !important;  /* Increased by another 25%: 1.25*1.25=1.5625 */
+        font-size: 2em !important;  /* Increased to 2em for better visibility */
         line-height: 1.5 !important;
         min-height: 3rem !important;
         transition: all 0.3s ease !important;
