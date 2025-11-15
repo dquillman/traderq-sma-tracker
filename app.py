@@ -2402,9 +2402,9 @@ st.markdown("""
         color: white;
         border: none;
         border-radius: 8px;
-        padding: 0.625rem 1.875rem;  /* Increased by 25%: 0.5*1.25=0.625, 1.5*1.25=1.875 */
+        padding: 0.78125rem 2.34375rem;  /* Increased by another 25%: 0.625*1.25=0.78125, 1.875*1.25=2.34375 */
         font-weight: 600;
-        font-size: 1.25em;  /* Increased by 25% */
+        font-size: 1.5625em;  /* Increased by another 25%: 1.25*1.25=1.5625 */
         transition: all 0.3s ease;
         box-shadow: 0 4px 15px rgba(0, 212, 255, 0.3);
     }
