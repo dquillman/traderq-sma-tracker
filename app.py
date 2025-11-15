@@ -3260,13 +3260,25 @@ with tab11:
     
     # Position Size Calculator
     st.subheader("Position Size Calculator")
+    
+    # Symbol selector
+    risk_ticker = st.selectbox("Select Symbol", selected or universe, key="risk_ticker")
+    
+    # Fetch current price if symbol is selected
+    current_price_risk = None
+    if risk_ticker:
+        df_risk = load_data(risk_ticker, start_d, end_d, mode, interval=interval)
+        if not df_risk.empty:
+            current_price_risk = float(df_risk["close"].iloc[-1])
+            st.info(f"📊 Current {risk_ticker} price: ${current_price_risk:.2f}")
+    
     risk_col1, risk_col2 = st.columns(2)
     with risk_col1:
         account_size = st.number_input("Account Size ($)", min_value=0.0, value=10000.0, step=1000.0, key="account_size")
         risk_percent = st.slider("Risk Per Trade (%)", min_value=0.1, max_value=10.0, value=2.0, step=0.1, key="risk_percent")
     with risk_col2:
-        entry_price = st.number_input("Entry Price ($)", min_value=0.0, value=100.0, step=0.01, key="entry_price")
-        stop_loss_price = st.number_input("Stop Loss ($)", min_value=0.0, value=95.0, step=0.01, key="stop_loss_price")
+        entry_price = st.number_input("Entry Price ($)", min_value=0.0, value=current_price_risk if current_price_risk else 100.0, step=0.01, key="entry_price")
+        stop_loss_price = st.number_input("Stop Loss ($)", min_value=0.0, value=current_price_risk * 0.95 if current_price_risk else 95.0, step=0.01, key="stop_loss_price")
     
     if st.button("Calculate Position Size", key="calc_position"):
         position = calculate_position_size(account_size, risk_percent, entry_price, stop_loss_price)
@@ -3312,13 +3324,25 @@ with tab11:
     # Risk/Reward Calculator
     st.divider()
     st.subheader("Risk/Reward Ratio Calculator")
+    
+    # Symbol selector
+    rr_ticker = st.selectbox("Select Symbol", selected or universe, key="rr_ticker")
+    
+    # Fetch current price if symbol is selected
+    current_price_rr = None
+    if rr_ticker:
+        df_rr = load_data(rr_ticker, start_d, end_d, mode, interval=interval)
+        if not df_rr.empty:
+            current_price_rr = float(df_rr["close"].iloc[-1])
+            st.info(f"📊 Current {rr_ticker} price: ${current_price_rr:.2f}")
+    
     rr_col1, rr_col2, rr_col3 = st.columns(3)
     with rr_col1:
-        rr_entry = st.number_input("Entry Price", min_value=0.0, value=100.0, step=0.01, key="rr_entry")
+        rr_entry = st.number_input("Entry Price", min_value=0.0, value=current_price_rr if current_price_rr else 100.0, step=0.01, key="rr_entry")
     with rr_col2:
-        rr_stop = st.number_input("Stop Loss", min_value=0.0, value=95.0, step=0.01, key="rr_stop")
+        rr_stop = st.number_input("Stop Loss", min_value=0.0, value=current_price_rr * 0.95 if current_price_rr else 95.0, step=0.01, key="rr_stop")
     with rr_col3:
-        rr_target = st.number_input("Target Price", min_value=0.0, value=110.0, step=0.01, key="rr_target")
+        rr_target = st.number_input("Target Price", min_value=0.0, value=current_price_rr * 1.10 if current_price_rr else 110.0, step=0.01, key="rr_target")
     
     if st.button("Calculate Risk/Reward", key="calc_rr"):
         rr_result = calculate_risk_reward(rr_entry, rr_stop, rr_target)
