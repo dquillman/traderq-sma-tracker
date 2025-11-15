@@ -2058,9 +2058,242 @@ def build_screener(tickers: list[str], start: date, end: date, mode: str, pretou
     return df
 
 # --- UI ---
-st.set_page_config(page_title="TraderQ SMA 20/200", layout="wide")
+st.set_page_config(
+    page_title="TraderQ - Professional Trading Analytics",
+    page_icon="📈",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Custom CSS for high-tech professional look
+st.markdown("""
+<style>
+    /* Main styling */
+    .main .block-container {
+        padding-top: 2rem;
+        padding-bottom: 2rem;
+    }
+    
+    /* Headers */
+    h1 {
+        color: #00d4ff;
+        font-weight: 700;
+        letter-spacing: -0.5px;
+        border-bottom: 2px solid #00d4ff;
+        padding-bottom: 0.5rem;
+        margin-bottom: 1.5rem;
+    }
+    
+    h2 {
+        color: #ffffff;
+        font-weight: 600;
+        margin-top: 1.5rem;
+        margin-bottom: 1rem;
+    }
+    
+    h3 {
+        color: #b0b0b0;
+        font-weight: 500;
+    }
+    
+    /* Sidebar styling */
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #0a0e27 0%, #1a1f3a 100%);
+    }
+    
+    [data-testid="stSidebar"] .css-1d391kg {
+        padding-top: 2rem;
+    }
+    
+    /* Metrics styling */
+    [data-testid="stMetricValue"] {
+        color: #00d4ff;
+        font-size: 2rem;
+        font-weight: 700;
+    }
+    
+    [data-testid="stMetricDelta"] {
+        color: #00ff88;
+    }
+    
+    /* Buttons */
+    .stButton > button {
+        background: linear-gradient(90deg, #00d4ff 0%, #0099cc 100%);
+        color: white;
+        border: none;
+        border-radius: 8px;
+        padding: 0.5rem 1.5rem;
+        font-weight: 600;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 15px rgba(0, 212, 255, 0.3);
+    }
+    
+    .stButton > button:hover {
+        background: linear-gradient(90deg, #00ff88 0%, #00d4ff 100%);
+        box-shadow: 0 6px 20px rgba(0, 212, 255, 0.5);
+        transform: translateY(-2px);
+    }
+    
+    /* Selectbox and inputs */
+    .stSelectbox > div > div {
+        background-color: #1a1f3a;
+        border: 1px solid #00d4ff;
+        border-radius: 6px;
+    }
+    
+    /* Number inputs */
+    input[type="number"] {
+        background-color: #1a1f3a !important;
+        border: 1px solid #00d4ff !important;
+        color: #ffffff !important;
+        border-radius: 6px !important;
+    }
+    
+    /* Tabs */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px;
+        background-color: #0a0e27;
+        padding: 0.5rem;
+        border-radius: 8px;
+    }
+    
+    .stTabs [data-baseweb="tab"] {
+        background-color: #1a1f3a;
+        color: #b0b0b0;
+        border-radius: 6px;
+        padding: 0.75rem 1.5rem;
+        font-weight: 500;
+        transition: all 0.3s ease;
+    }
+    
+    .stTabs [aria-selected="true"] {
+        background: linear-gradient(90deg, #00d4ff 0%, #0099cc 100%);
+        color: white;
+        box-shadow: 0 4px 15px rgba(0, 212, 255, 0.3);
+    }
+    
+    /* Expanders */
+    .streamlit-expanderHeader {
+        background-color: #1a1f3a;
+        border: 1px solid #00d4ff;
+        border-radius: 6px;
+        padding: 0.75rem;
+        font-weight: 500;
+    }
+    
+    /* Info boxes */
+    .stInfo {
+        background: linear-gradient(135deg, rgba(0, 212, 255, 0.1) 0%, rgba(0, 153, 204, 0.1) 100%);
+        border-left: 4px solid #00d4ff;
+        border-radius: 6px;
+        padding: 1rem;
+    }
+    
+    /* Success boxes */
+    .stSuccess {
+        background: linear-gradient(135deg, rgba(0, 255, 136, 0.1) 0%, rgba(0, 212, 255, 0.1) 100%);
+        border-left: 4px solid #00ff88;
+        border-radius: 6px;
+    }
+    
+    /* Warning boxes */
+    .stWarning {
+        background: linear-gradient(135deg, rgba(255, 193, 7, 0.1) 0%, rgba(255, 152, 0, 0.1) 100%);
+        border-left: 4px solid #ffc107;
+        border-radius: 6px;
+    }
+    
+    /* Error boxes */
+    .stError {
+        background: linear-gradient(135deg, rgba(243, 18, 96, 0.1) 0%, rgba(200, 0, 0, 0.1) 100%);
+        border-left: 4px solid #f31260;
+        border-radius: 6px;
+    }
+    
+    /* Dataframes */
+    .dataframe {
+        background-color: #1a1f3a;
+        border-radius: 8px;
+        border: 1px solid #00d4ff;
+    }
+    
+    /* Radio buttons */
+    [data-baseweb="radio"] {
+        background-color: #1a1f3a;
+    }
+    
+    /* Sliders */
+    .stSlider > div > div {
+        background-color: #1a1f3a;
+    }
+    
+    /* Checkboxes */
+    [data-baseweb="checkbox"] {
+        background-color: #1a1f3a;
+    }
+    
+    /* Divider */
+    hr {
+        border: none;
+        border-top: 2px solid #00d4ff;
+        opacity: 0.3;
+        margin: 2rem 0;
+    }
+    
+    /* Code blocks */
+    .stCodeBlock {
+        background-color: #0a0e27;
+        border: 1px solid #00d4ff;
+        border-radius: 6px;
+    }
+    
+    /* Caption styling */
+    .stCaption {
+        color: #b0b0b0;
+        font-size: 0.85rem;
+    }
+    
+    /* Main container background */
+    .main {
+        background: linear-gradient(180deg, #0a0e27 0%, #1a1f3a 50%, #0a0e27 100%);
+    }
+    
+    /* Scrollbar styling */
+    ::-webkit-scrollbar {
+        width: 10px;
+        height: 10px;
+    }
+    
+    ::-webkit-scrollbar-track {
+        background: #0a0e27;
+    }
+    
+    ::-webkit-scrollbar-thumb {
+        background: #00d4ff;
+        border-radius: 5px;
+    }
+    
+    ::-webkit-scrollbar-thumb:hover {
+        background: #00ff88;
+    }
+</style>
+""", unsafe_allow_html=True)
 ui_glow_patch.apply()  # apply glow after set_page_config
-st.title(f"TraderQ SMA 20/200 Tracker — {APP_VERSION}")
+
+# Professional header
+st.markdown(f"""
+<div style="text-align: center; padding: 2rem 0; background: linear-gradient(135deg, rgba(0, 212, 255, 0.1) 0%, rgba(0, 153, 204, 0.1) 100%); border-radius: 12px; margin-bottom: 2rem; border: 1px solid rgba(0, 212, 255, 0.3);">
+    <h1 style="color: #00d4ff; font-size: 3rem; font-weight: 800; margin: 0; text-shadow: 0 0 20px rgba(0, 212, 255, 0.5); letter-spacing: -1px;">
+        📈 TraderQ
+    </h1>
+    <p style="color: #b0b0b0; font-size: 1.2rem; margin: 0.5rem 0 0 0; font-weight: 300;">
+        Professional Trading Analytics Platform
+    </p>
+    <p style="color: #00ff88; font-size: 0.9rem; margin: 0.5rem 0 0 0; font-weight: 500;">
+        Version {APP_VERSION} • Advanced Technical Analysis & Risk Management
+    </p>
+</div>
+""", unsafe_allow_html=True)
 
 # Main tabs
 tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs([
@@ -2068,7 +2301,8 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs([
     "📰 News", "📐 Patterns", "🔗 Correlation", "📝 Journal", "⚡ Signals", "🛡️ Risk"
 ])
 
-# Sidebar controls
+# Sidebar controls with professional styling
+st.sidebar.markdown("### ⚙️ Configuration")
 mode = st.sidebar.radio("Market", ["Stocks", "Crypto"], horizontal=True)
 theme = st.sidebar.radio("Chart Theme", ["Dark", "Light"], index=0, horizontal=True)
 timeframe = st.sidebar.selectbox("Timeframe", ["Daily", "Weekly", "Monthly"], index=0)
@@ -2079,7 +2313,7 @@ period_days = st.sidebar.select_slider("Lookback (days)", options=[180, 365, 540
 
 # Indicator toggles
 st.sidebar.markdown("---")
-st.sidebar.markdown("**Indicators**")
+st.sidebar.markdown("### 📊 Indicators")
 show_sma20 = st.sidebar.checkbox("Show SMA 20", value=True)
 show_sma200 = st.sidebar.checkbox("Show SMA 200", value=True)
 show_volume = st.sidebar.checkbox("Show Volume", value=True)
