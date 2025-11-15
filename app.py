@@ -1937,7 +1937,17 @@ def make_chart(df: pd.DataFrame, title: str, theme: str, pretouch_pct: float | N
                show_support_resistance: bool = False) -> go.Figure:
     if df.empty:
         fig = go.Figure()
-        fig.update_layout(template="plotly_dark" if theme == "Dark" else "plotly_white", title=title)
+        fig.update_layout(
+            template="plotly_dark" if theme == "Dark" else "plotly_white", 
+            title=title,
+            hoverlabel=dict(
+                bgcolor="rgba(0, 0, 0, 0.9)",
+                bordercolor="rgba(0, 212, 255, 0.8)",
+                font_size=39,  # 3x the default size (~13px)
+                font_family="Arial, sans-serif",
+                font_color="white"
+            )
+        )
         return fig
 
     df = df.copy()
@@ -2171,7 +2181,14 @@ def make_chart(df: pd.DataFrame, title: str, theme: str, pretouch_pct: float | N
         margin=dict(l=10, r=10, t=60, b=10),
         height=400 + (200 * (num_subplots - 1)),
         plot_bgcolor=plot_bgcolor,
-        paper_bgcolor=paper_bgcolor
+        paper_bgcolor=paper_bgcolor,
+        hoverlabel=dict(
+            bgcolor="rgba(0, 0, 0, 0.9)",
+            bordercolor="rgba(0, 212, 255, 0.8)",
+            font_size=39,  # 3x the default size (~13px)
+            font_family="Arial, sans-serif",
+            font_color="white"
+        )
     )
     
     # Update the main chart's background color
