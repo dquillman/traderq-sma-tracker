@@ -2795,8 +2795,15 @@ with tab6:
             
             st.divider()
             
+            # Sort articles by sentiment: Bullish first, then Bearish, then Neutral
+            sentiment_order = {'BULLISH': 0, 'BEARISH': 1, 'NEUTRAL': 2}
+            sorted_news = sorted(news_items, key=lambda x: (
+                sentiment_order.get(x.get('sentiment', {}).get('sentiment', 'NEUTRAL'), 2),
+                -x.get('sentiment', {}).get('confidence', 0)  # Higher confidence first within same sentiment
+            ))
+            
             # Display each article
-            for i, item in enumerate(news_items, 1):
+            for i, item in enumerate(sorted_news, 1):
                 # Handle different news item formats
                 title = item.get('title') or item.get('headline') or f"Article {i}"
                 publisher = item.get('publisher') or item.get('source') or item.get('provider') or "Unknown"
@@ -2959,10 +2966,27 @@ with tab7:
             patterns = detect_patterns(df)
             if patterns:
                 st.subheader(f"Detected Patterns for {pattern_ticker}")
+                
+                # Determine if pattern is bullish or bearish
+                def get_pattern_sentiment(pattern_type: str) -> tuple[str, str]:
+                    """Returns (emoji, color) for pattern type."""
+                    bullish_patterns = ['Double Bottom', 'Inverse Head and Shoulders', 'Ascending Triangle', 'Uptrend']
+                    bearish_patterns = ['Double Top', 'Head and Shoulders', 'Descending Triangle', 'Downtrend']
+                    
+                    if pattern_type in bullish_patterns:
+                        return ("🟢", "green")
+                    elif pattern_type in bearish_patterns:
+                        return ("🔴", "red")
+                    else:
+                        return ("⚪", "gray")
+                
                 for pattern in patterns:
+                    pattern_type = pattern['type']
+                    emoji, color = get_pattern_sentiment(pattern_type)
+                    
                     col1, col2 = st.columns([2, 1])
                     with col1:
-                        st.write(f"**{pattern['type']}**")
+                        st.markdown(f"{emoji} **<span style='color:{color}'>{pattern_type}</span>**", unsafe_allow_html=True)
                         st.caption(pattern.get('description', ''))
                     with col2:
                         confidence_pct = pattern.get('confidence', 0) * 100
