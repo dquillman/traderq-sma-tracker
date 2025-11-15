@@ -2584,6 +2584,72 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs([
 # Sidebar controls with professional styling
 st.sidebar.markdown("### ⚙️ Configuration")
 mode = st.sidebar.radio("Market", ["Stocks", "Crypto"], horizontal=True)
+
+# Ticker selection with persistent custom tickers (moved to sidebar)
+universe = DEFAULT_STOCKS if mode == "Stocks" else DEFAULT_CRYPTOS
+
+# Initialize session state for custom tickers per mode (load from file on first run)
+if "custom_tickers_loaded" not in st.session_state:
+    st.session_state["custom_tickers_loaded"] = True
+    saved_data = load_custom_tickers()
+    st.session_state["custom_tickers_Stocks"] = saved_data.get("custom", {}).get("Stocks", [])
+    st.session_state["custom_tickers_Crypto"] = saved_data.get("custom", {}).get("Crypto", [])
+    st.session_state["selected_tickers_Stocks"] = saved_data.get("selected", {}).get("Stocks", [])
+    st.session_state["selected_tickers_Crypto"] = saved_data.get("selected", {}).get("Crypto", [])
+
+if f"custom_tickers_{mode}" not in st.session_state:
+    st.session_state[f"custom_tickers_{mode}"] = []
+if f"selected_tickers_{mode}" not in st.session_state:
+    st.session_state[f"selected_tickers_{mode}"] = []
+
+# Ticker selection in sidebar
+st.sidebar.markdown("### 📊 Symbols")
+# Combine universe with custom tickers for options
+all_options = list(dict.fromkeys(universe + st.session_state[f"custom_tickers_{mode}"]))
+# Use saved selected tickers if available, otherwise default to universe
+default_selected = st.session_state[f"selected_tickers_{mode}"] if st.session_state[f"selected_tickers_{mode}"] else universe
+selected = st.sidebar.multiselect("Choose tickers", options=all_options, default=default_selected, key=f"choose_{mode}")
+
+# Save selected tickers whenever they change
+if selected != st.session_state.get(f"_prev_selected_{mode}", []):
+    st.session_state[f"_prev_selected_{mode}"] = selected
+    st.session_state[f"selected_tickers_{mode}"] = selected
+    save_custom_tickers({
+        "custom": {
+            "Stocks": st.session_state.get("custom_tickers_Stocks", []),
+            "Crypto": st.session_state.get("custom_tickers_Crypto", [])
+        },
+        "selected": {
+            "Stocks": st.session_state.get("selected_tickers_Stocks", []),
+            "Crypto": st.session_state.get("selected_tickers_Crypto", [])
+        }
+    })
+
+# Quick Add in sidebar
+st.sidebar.markdown("---")
+st.sidebar.markdown("### ➕ Quick Add")
+custom = st.sidebar.text_input("Add ticker", value="", placeholder="e.g., AAPL or BTC-USD", key=f"quick_add_{mode}")
+if st.sidebar.button("Add", key=f"add_btn_{mode}"):
+    if custom.strip():
+        custom_upper = custom.strip().upper()
+        if custom_upper not in st.session_state[f"custom_tickers_{mode}"]:
+            st.session_state[f"custom_tickers_{mode}"].append(custom_upper)
+            # Also add to selected tickers
+            if custom_upper not in st.session_state[f"selected_tickers_{mode}"]:
+                st.session_state[f"selected_tickers_{mode}"].append(custom_upper)
+            # Save to file
+            save_custom_tickers({
+                "custom": {
+                    "Stocks": st.session_state.get("custom_tickers_Stocks", []),
+                    "Crypto": st.session_state.get("custom_tickers_Crypto", [])
+                },
+                "selected": {
+                    "Stocks": st.session_state.get("selected_tickers_Stocks", []),
+                    "Crypto": st.session_state.get("selected_tickers_Crypto", [])
+                }
+            })
+            st.rerun()
+
 theme = st.sidebar.radio("Chart Theme", ["Dark", "Light"], index=0, horizontal=True)
 timeframe = st.sidebar.selectbox("Timeframe", ["Daily", "Weekly", "Monthly"], index=0)
 interval_map = {"Daily": "1d", "Weekly": "1wk", "Monthly": "1mo"}
@@ -2606,155 +2672,49 @@ show_support_resistance = st.sidebar.checkbox("Show Support/Resistance", value=F
 end_d = date.today()
 start_d = end_d - timedelta(days=int(period_days))
 
-# Ticker selection with persistent custom tickers
-universe = DEFAULT_STOCKS if mode == "Stocks" else DEFAULT_CRYPTOS
+# Watchlists section in main area
+st.markdown("### 📋 Watchlists")
+watchlists = load_watchlists()
+watchlist_names = list(watchlists.keys())
 
-# Initialize session state for custom tickers per mode (load from file on first run)
-if "custom_tickers_loaded" not in st.session_state:
-    st.session_state["custom_tickers_loaded"] = True
-    saved_data = load_custom_tickers()
-    st.session_state["custom_tickers_Stocks"] = saved_data.get("custom", {}).get("Stocks", [])
-    st.session_state["custom_tickers_Crypto"] = saved_data.get("custom", {}).get("Crypto", [])
-    st.session_state["selected_tickers_Stocks"] = saved_data.get("selected", {}).get("Stocks", [])
-    st.session_state["selected_tickers_Crypto"] = saved_data.get("selected", {}).get("Crypto", [])
+# Load watchlist selector
+if watchlist_names:
+    selected_watchlist = st.selectbox("Select Watchlist", ["-- New --"] + watchlist_names, key=f"watchlist_select_{mode}")
+    if selected_watchlist != "-- New --":
+        if st.button("Load Watchlist", key=f"load_watchlist_{mode}"):
+            st.session_state[f"selected_tickers_{mode}"] = watchlists[selected_watchlist].get("tickers", [])
+            st.rerun()
+        if st.button("Delete Watchlist", key=f"delete_watchlist_{mode}"):
+            del watchlists[selected_watchlist]
+            save_watchlists(watchlists)
+            st.rerun()
 
-if f"custom_tickers_{mode}" not in st.session_state:
-    st.session_state[f"custom_tickers_{mode}"] = []
-if f"selected_tickers_{mode}" not in st.session_state:
-    st.session_state[f"selected_tickers_{mode}"] = []
+# Create new watchlist
+new_watchlist_name = st.text_input("New Watchlist Name", key=f"new_watchlist_{mode}", placeholder="e.g., Tech Stocks")
+if st.button("Create Watchlist", key=f"create_watchlist_{mode}"):
+    if new_watchlist_name.strip() and selected:
+        watchlists[new_watchlist_name.strip()] = {
+            "tickers": selected.copy(),
+            "mode": mode,
+            "created": date.today().isoformat()
+        }
+        save_watchlists(watchlists)
+        st.success(f"Watchlist '{new_watchlist_name.strip()}' created!")
+        st.rerun()
 
-left, right = st.columns([1, 3])
-with left:
-    st.subheader("Symbols")
-    # Combine universe with custom tickers for options
-    all_options = list(dict.fromkeys(universe + st.session_state[f"custom_tickers_{mode}"]))
-    # Use saved selected tickers if available, otherwise default to universe
-    default_selected = st.session_state[f"selected_tickers_{mode}"] if st.session_state[f"selected_tickers_{mode}"] else universe
-    selected = st.multiselect("Choose tickers", options=all_options, default=default_selected, key=f"choose_{mode}")
-
-    # Save selected tickers whenever they change
-    if selected != st.session_state.get(f"_prev_selected_{mode}", []):
-        st.session_state[f"_prev_selected_{mode}"] = selected
-        st.session_state[f"selected_tickers_{mode}"] = selected
-        save_custom_tickers({
-            "custom": {
-                "Stocks": st.session_state.get("custom_tickers_Stocks", []),
-                "Crypto": st.session_state.get("custom_tickers_Crypto", [])
-            },
-            "selected": {
-                "Stocks": st.session_state.get("selected_tickers_Stocks", []),
-                "Crypto": st.session_state.get("selected_tickers_Crypto", [])
-            }
-        })
-
-    # Reorder controls
-    if len(selected) > 1:
-        st.markdown("**Reorder:**")
-        reorder_cols = st.columns([3, 1, 1])
-        with reorder_cols[0]:
-            ticker_to_move = st.selectbox("Select ticker to move", selected, key=f"reorder_select_{mode}")
-        with reorder_cols[1]:
-            if st.button("↑", key=f"move_up_{mode}", help="Move up"):
-                idx = selected.index(ticker_to_move)
-                if idx > 0:
-                    selected[idx], selected[idx-1] = selected[idx-1], selected[idx]
-                    st.session_state[f"selected_tickers_{mode}"] = selected
-                    save_custom_tickers({
-                        "custom": {
-                            "Stocks": st.session_state.get("custom_tickers_Stocks", []),
-                            "Crypto": st.session_state.get("custom_tickers_Crypto", [])
-                        },
-                        "selected": {
-                            "Stocks": st.session_state.get("selected_tickers_Stocks", []),
-                            "Crypto": st.session_state.get("selected_tickers_Crypto", [])
-                        }
-                    })
-                    st.rerun()
-        with reorder_cols[2]:
-            if st.button("↓", key=f"move_down_{mode}", help="Move down"):
-                idx = selected.index(ticker_to_move)
-                if idx < len(selected) - 1:
-                    selected[idx], selected[idx+1] = selected[idx+1], selected[idx]
-                    st.session_state[f"selected_tickers_{mode}"] = selected
-                    save_custom_tickers({
-                        "custom": {
-                            "Stocks": st.session_state.get("custom_tickers_Stocks", []),
-                            "Crypto": st.session_state.get("custom_tickers_Crypto", [])
-                        },
-                        "selected": {
-                            "Stocks": st.session_state.get("selected_tickers_Stocks", []),
-                            "Crypto": st.session_state.get("selected_tickers_Crypto", [])
-                        }
-                    })
-                    st.rerun()
-
-with right:
-    st.subheader("Quick Add")
-    custom = st.text_input("Add ticker (Yahoo symbol)", value="", placeholder="e.g., AAPL or BTC-USD", key=f"quick_add_{mode}")
-    if st.button("Add", key=f"add_btn_{mode}"):
-        if custom.strip():
-            custom_upper = custom.strip().upper()
-            if custom_upper not in st.session_state[f"custom_tickers_{mode}"]:
-                st.session_state[f"custom_tickers_{mode}"].append(custom_upper)
-                # Also add to selected tickers
-                if custom_upper not in st.session_state[f"selected_tickers_{mode}"]:
-                    st.session_state[f"selected_tickers_{mode}"].append(custom_upper)
-                # Save to file
-                save_custom_tickers({
-                    "custom": {
-                        "Stocks": st.session_state.get("custom_tickers_Stocks", []),
-                        "Crypto": st.session_state.get("custom_tickers_Crypto", [])
-                    },
-                    "selected": {
-                        "Stocks": st.session_state.get("selected_tickers_Stocks", []),
-                        "Crypto": st.session_state.get("selected_tickers_Crypto", [])
-                    }
-                })
-                st.rerun()
-    
-    # Watchlists
-    st.subheader("📋 Watchlists")
-    watchlists = load_watchlists()
-    watchlist_names = list(watchlists.keys())
-    
-    # Load watchlist selector
-    if watchlist_names:
-        selected_watchlist = st.selectbox("Select Watchlist", ["-- New --"] + watchlist_names, key=f"watchlist_select_{mode}")
-        if selected_watchlist != "-- New --":
-            if st.button("Load Watchlist", key=f"load_watchlist_{mode}"):
-                st.session_state[f"selected_tickers_{mode}"] = watchlists[selected_watchlist].get("tickers", [])
-                st.rerun()
-            if st.button("Delete Watchlist", key=f"delete_watchlist_{mode}"):
-                del watchlists[selected_watchlist]
-                save_watchlists(watchlists)
-                st.rerun()
-    
-    # Create new watchlist
-    new_watchlist_name = st.text_input("New Watchlist Name", key=f"new_watchlist_{mode}", placeholder="e.g., Tech Stocks")
-    if st.button("Create Watchlist", key=f"create_watchlist_{mode}"):
-        if new_watchlist_name.strip() and selected:
-            watchlists[new_watchlist_name.strip()] = {
+# Save current selection as watchlist
+if selected:
+    save_as_name = st.text_input("Save Current as Watchlist", key=f"save_watchlist_{mode}", placeholder="e.g., My Portfolio")
+    if st.button("Save", key=f"save_watchlist_btn_{mode}"):
+        if save_as_name.strip():
+            watchlists[save_as_name.strip()] = {
                 "tickers": selected.copy(),
                 "mode": mode,
                 "created": date.today().isoformat()
             }
             save_watchlists(watchlists)
-            st.success(f"Watchlist '{new_watchlist_name.strip()}' created!")
+            st.success(f"Saved as '{save_as_name.strip()}'!")
             st.rerun()
-    
-    # Save current selection as watchlist
-    if selected:
-        save_as_name = st.text_input("Save Current as Watchlist", key=f"save_watchlist_{mode}", placeholder="e.g., My Portfolio")
-        if st.button("Save", key=f"save_watchlist_btn_{mode}"):
-            if save_as_name.strip():
-                watchlists[save_as_name.strip()] = {
-                    "tickers": selected.copy(),
-                    "mode": mode,
-                    "created": date.today().isoformat()
-                }
-                save_watchlists(watchlists)
-                st.success(f"Saved as '{save_as_name.strip()}'!")
-                st.rerun()
 
 # Safety: unique list
 selected = list(dict.fromkeys(selected))
