@@ -1,10 +1,53 @@
-﻿.venv/
+# Python
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
-.DS_Store
-.streamlit/
-.idea/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env/
+
+# IDE
 .vscode/
-*.zip
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Streamlit
+.streamlit/
+*.log
+streamlit_*.log
+
+# Backup files
+*.bak
+*.bak_*
+app.py.broken
+app.py.bak*
+
+# Project specific
+.custom_tickers.json
+.claude/
+*.json.bak
+
+# User-specific settings
+.claude/settings.local.json
+
+# Temporary files
+nul
+*.tmp
+
+# Nested repo (should be removed or handled separately)
+traderq-sma-tracker/
+
