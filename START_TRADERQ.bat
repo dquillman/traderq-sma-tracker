@@ -11,14 +11,28 @@ cd /d "%~dp0"
 
 REM Check if virtual environment exists
 echo Current directory: %CD%
-echo Checking for: .venv\Scripts\python.exe
-if not exist ".venv\Scripts\python.exe" (
-    echo ERROR: Virtual environment not found!
-    echo Please run setup first or check that .venv folder exists.
+echo Checking for Python...
+
+REM Try venv first
+set "PYTHON_CMD="
+if exist ".venv\Scripts\python.exe" (
+    set "PYTHON_CMD=.venv\Scripts\python.exe"
+    echo Using virtual environment Python
+) else if exist "G:\Python311\python.exe" (
+    set "PYTHON_CMD=G:\Python311\python.exe"
+    echo Using system Python from G:\Python311
+) else (
+    set "PYTHON_CMD=python"
+    echo Using system Python from PATH
+)
+
+REM Test if Python works
+%PYTHON_CMD% --version >nul 2>&1
+if errorlevel 1 (
+    echo ERROR: Python not found or not working!
     pause
     exit /b 1
 )
-echo Virtual environment found!
 
 REM Kill any existing Streamlit processes on port 8501
 echo Checking for existing processes on port 8501...
@@ -50,11 +64,24 @@ echo.
 echo ========================================
 echo.
 
+REM Check if streamlit is installed
+echo Checking for Streamlit...
+%PYTHON_CMD% -m streamlit --version >nul 2>&1
+if errorlevel 1 (
+    echo Streamlit not found. Installing dependencies...
+    %PYTHON_CMD% -m pip install -q -r requirements.txt
+    if errorlevel 1 (
+        echo ERROR: Failed to install dependencies!
+        pause
+        exit /b 1
+    )
+)
+
 REM Run Streamlit directly - this will block and keep the window open
 echo.
-echo Launching: .venv\Scripts\python.exe -m streamlit run app.py --server.port=8501
+echo Launching: %PYTHON_CMD% -m streamlit run app.py --server.port=8501
 echo.
-.venv\Scripts\python.exe -m streamlit run app.py --server.port=8501
+%PYTHON_CMD% -m streamlit run app.py --server.port=8501
 echo.
 echo Streamlit exited with code: %ERRORLEVEL%
 

@@ -38,6 +38,13 @@ app.py.bak*
 
 # Project specific
 .custom_tickers.json
+.alerts.json
+.portfolio.json
+.cross_history.json
+.watchlists.json
+.trade_journal.json
+.alert_history.json
+.email_config.json
 .claude/
 *.json.bak
 
