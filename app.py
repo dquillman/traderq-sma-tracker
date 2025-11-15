@@ -59,7 +59,8 @@ import streamlit as st
 import ui_glow_patch
 import yf_patch  # glow+session patch
 
-APP_VERSION = "v2.1.0"
+APP_VERSION = "v2.2.0"
+# v2.2.0 – AI Recommendations system with comprehensive analysis (SMA, RSI, News Sentiment)
 # v2.1.0 – risk management dashboard, signal generator, win rate analytics, position tracking, market regime detection
 
 # --- Settings / Defaults ---
@@ -870,6 +871,220 @@ def fetch_news(ticker: str, max_items: int = 5) -> list:
         import traceback
         traceback.print_exc()
         return []
+
+# --- AI Recommendation System ---
+def generate_ai_recommendation(ticker: str, df: pd.DataFrame, start: date, end: date, mode: str, interval: str) -> dict:
+    """Generate comprehensive AI trading recommendation based on SMA, News Sentiment, and RSI."""
+    if df.empty or len(df) < 200:
+        return {"error": "Insufficient data for analysis"}
+    
+    d = df.copy()
+    d["SMA20"] = _sma(d["close"], SMA_SHORT)
+    d["SMA200"] = _sma(d["close"], SMA_LONG)
+    
+    last = d.iloc[-1]
+    prev = d.iloc[-2] if len(d) > 1 else last
+    
+    # Current price
+    current_price = float(last["close"])
+    sma20_val = float(last["SMA20"])
+    sma200_val = float(last["SMA200"])
+    
+    # Calculate RSI
+    rsi = _rsi(d["close"], window=14)
+    rsi_val = float(rsi.iloc[-1]) if not pd.isna(rsi.iloc[-1]) else 50
+    
+    # Analyze SMA Cross
+    sma_analysis = {}
+    sma_score = 0
+    if sma20_val > sma200_val:
+        sma_analysis["status"] = "Bullish"
+        sma_analysis["description"] = f"SMA20 (${sma20_val:.2f}) is above SMA200 (${sma200_val:.2f})"
+        sma_score = 2
+        if prev["SMA20"] <= prev["SMA200"]:
+            sma_analysis["status"] = "Golden Cross"
+            sma_analysis["description"] = "🟢 GOLDEN CROSS detected! SMA20 just crossed above SMA200 - Strong bullish signal"
+            sma_score = 3
+    elif sma20_val < sma200_val:
+        sma_analysis["status"] = "Bearish"
+        sma_analysis["description"] = f"SMA20 (${sma20_val:.2f}) is below SMA200 (${sma200_val:.2f})"
+        sma_score = -2
+        if prev["SMA20"] >= prev["SMA200"]:
+            sma_analysis["status"] = "Death Cross"
+            sma_analysis["description"] = "🔴 DEATH CROSS detected! SMA20 just crossed below SMA200 - Strong bearish signal"
+            sma_score = -3
+    else:
+        sma_analysis["status"] = "Neutral"
+        sma_analysis["description"] = "SMA20 and SMA200 are at similar levels"
+        sma_score = 0
+    
+    # Analyze RSI
+    rsi_analysis = {}
+    rsi_score = 0
+    if rsi_val < 30:
+        rsi_analysis["status"] = "Oversold"
+        rsi_analysis["description"] = f"RSI at {rsi_val:.1f} - Oversold condition, potential buying opportunity"
+        rsi_score = 2
+    elif rsi_val > 70:
+        rsi_analysis["status"] = "Overbought"
+        rsi_analysis["description"] = f"RSI at {rsi_val:.1f} - Overbought condition, potential selling opportunity"
+        rsi_score = -2
+    elif 30 <= rsi_val <= 50:
+        rsi_analysis["status"] = "Neutral-Bullish"
+        rsi_analysis["description"] = f"RSI at {rsi_val:.1f} - Neutral to slightly bullish"
+        rsi_score = 1
+    elif 50 < rsi_val <= 70:
+        rsi_analysis["status"] = "Neutral-Bearish"
+        rsi_analysis["description"] = f"RSI at {rsi_val:.1f} - Neutral to slightly bearish"
+        rsi_score = -1
+    else:
+        rsi_analysis["status"] = "Neutral"
+        rsi_analysis["description"] = f"RSI at {rsi_val:.1f} - Neutral"
+        rsi_score = 0
+    
+    # Fetch and analyze news sentiment
+    news_items = fetch_news(ticker, max_items=10)
+    news_analysis = {}
+    news_score = 0
+    
+    if news_items:
+        bullish_count = sum(1 for item in news_items if item.get('sentiment', {}).get('sentiment') == 'BULLISH')
+        bearish_count = sum(1 for item in news_items if item.get('sentiment', {}).get('sentiment') == 'BEARISH')
+        neutral_count = len(news_items) - bullish_count - bearish_count
+        
+        total_confidence = sum(item.get('sentiment', {}).get('confidence', 0) for item in news_items) / len(news_items) if news_items else 0
+        
+        if bullish_count > bearish_count:
+            news_analysis["status"] = "Bullish"
+            news_analysis["description"] = f"News sentiment: {bullish_count} bullish, {bearish_count} bearish, {neutral_count} neutral articles"
+            news_score = 2
+        elif bearish_count > bullish_count:
+            news_analysis["status"] = "Bearish"
+            news_analysis["description"] = f"News sentiment: {bullish_count} bullish, {bearish_count} bearish, {neutral_count} neutral articles"
+            news_score = -2
+        else:
+            news_analysis["status"] = "Neutral"
+            news_analysis["description"] = f"News sentiment: {bullish_count} bullish, {bearish_count} bearish, {neutral_count} neutral articles"
+            news_score = 0
+        
+        news_analysis["bullish_count"] = bullish_count
+        news_analysis["bearish_count"] = bearish_count
+        news_analysis["neutral_count"] = neutral_count
+        news_analysis["confidence"] = total_confidence
+    else:
+        news_analysis["status"] = "No Data"
+        news_analysis["description"] = "No news articles found for sentiment analysis"
+        news_score = 0
+    
+    # Combine scores
+    total_score = sma_score + rsi_score + news_score
+    
+    # Determine recommendation
+    if total_score >= 5:
+        recommendation = "STRONG LONG"
+        direction = "LONG"
+        confidence = "HIGH"
+    elif total_score >= 2:
+        recommendation = "LONG"
+        direction = "LONG"
+        confidence = "MEDIUM"
+    elif total_score <= -5:
+        recommendation = "STRONG SHORT"
+        direction = "SHORT"
+        confidence = "HIGH"
+    elif total_score <= -2:
+        recommendation = "SHORT"
+        direction = "SHORT"
+        confidence = "MEDIUM"
+    else:
+        recommendation = "NEUTRAL/HOLD"
+        direction = "HOLD"
+        confidence = "LOW"
+    
+    # Calculate entry, stop loss, and target prices
+    entry_price = current_price
+    
+    # Calculate ATR for stop loss
+    atr_stop = calculate_atr_stop_loss(d, atr_multiplier=2.0, is_long=(direction == "LONG"))
+    
+    # Get support/resistance levels
+    sr_levels = find_support_resistance(d)
+    
+    if direction == "LONG":
+        # For long positions
+        stop_loss = min(atr_stop, current_price * 0.95)  # Use ATR or 5% whichever is closer
+        
+        # Target based on resistance levels or ATR
+        resistance_levels = sr_levels.get("resistance", [])
+        if resistance_levels:
+            nearest_resistance = min([r["price"] for r in resistance_levels if r["price"] > current_price], default=None)
+            if nearest_resistance:
+                target_price = nearest_resistance
+            else:
+                target_price = current_price * 1.10  # 10% target if no resistance
+        else:
+            target_price = current_price * 1.10  # 10% target
+        
+        # Ensure minimum 2:1 risk/reward
+        risk = abs(entry_price - stop_loss)
+        reward = abs(target_price - entry_price)
+        if reward / risk < 2.0:
+            target_price = entry_price + (risk * 2.0)
+    elif direction == "SHORT":
+        # For short positions
+        stop_loss = max(atr_stop, current_price * 1.05)  # Use ATR or 5% whichever is closer
+        
+        # Target based on support levels or ATR
+        support_levels = sr_levels.get("support", [])
+        if support_levels:
+            nearest_support = max([s["price"] for s in support_levels if s["price"] < current_price], default=None)
+            if nearest_support:
+                target_price = nearest_support
+            else:
+                target_price = current_price * 0.90  # 10% target if no support
+        else:
+            target_price = current_price * 0.90  # 10% target
+        
+        # Ensure minimum 2:1 risk/reward
+        risk = abs(stop_loss - entry_price)
+        reward = abs(entry_price - target_price)
+        if reward / risk < 2.0:
+            target_price = entry_price - (risk * 2.0)
+    else:
+        # Neutral/Hold
+        stop_loss = current_price * 0.95
+        target_price = current_price * 1.05
+    
+    # Calculate risk/reward ratio
+    if direction == "LONG":
+        risk = abs(entry_price - stop_loss)
+        reward = abs(target_price - entry_price)
+    elif direction == "SHORT":
+        risk = abs(stop_loss - entry_price)
+        reward = abs(entry_price - target_price)
+    else:
+        risk = 0
+        reward = 0
+    
+    risk_reward_ratio = reward / risk if risk > 0 else 0
+    
+    return {
+        "ticker": ticker,
+        "current_price": current_price,
+        "recommendation": recommendation,
+        "direction": direction,
+        "confidence": confidence,
+        "total_score": total_score,
+        "sma_analysis": sma_analysis,
+        "rsi_analysis": rsi_analysis,
+        "news_analysis": news_analysis,
+        "entry_price": entry_price,
+        "stop_loss": stop_loss,
+        "target_price": target_price,
+        "risk_reward_ratio": risk_reward_ratio,
+        "risk_pct": (abs(entry_price - stop_loss) / entry_price * 100) if entry_price > 0 else 0,
+        "reward_pct": (abs(target_price - entry_price) / entry_price * 100) if entry_price > 0 else 0
+    }
 
 # --- Risk Management ---
 def calculate_position_size(account_size: float, risk_percent: float, entry_price: float, stop_loss: float) -> dict:
@@ -2486,7 +2701,14 @@ with tab1:
         df = load_data(t, start_d, end_d, mode, interval=interval)
         cols = st.columns([3, 1], gap="large")
         with cols[0]:
-            st.markdown(f"**{t}**")
+            # Header with AI Recommendations button
+            header_cols = st.columns([3, 1])
+            with header_cols[0]:
+                st.markdown(f"**{t}**")
+            with header_cols[1]:
+                if st.button("🤖 AI Recommendations", key=f"ai_rec_{t}", use_container_width=True):
+                    st.session_state[f"show_ai_{t}"] = True
+            
             fig = make_chart(df, f"{t} — SMA {SMA_SHORT}/{SMA_LONG}", theme, pretouch,
                             show_volume=show_volume, show_rsi=show_rsi, 
                             show_macd=show_macd, show_bollinger=show_bollinger,
@@ -2520,6 +2742,135 @@ with tab1:
                     )
                 except Exception:
                     pass
+            
+            # AI Recommendations Report
+            if st.session_state.get(f"show_ai_{t}", False):
+                with st.spinner(f"🤖 Analyzing {t}... Generating comprehensive AI recommendation..."):
+                    recommendation = generate_ai_recommendation(t, df, start_d, end_d, mode, interval)
+                
+                if "error" in recommendation:
+                    st.error(f"❌ {recommendation['error']}")
+                else:
+                    st.markdown("---")
+                    st.markdown(f"### 🤖 AI Trading Recommendation for {t}")
+                    
+                    # Main recommendation card
+                    rec_color = "#00ff88" if recommendation["direction"] == "LONG" else "#f31260" if recommendation["direction"] == "SHORT" else "#b0b0b0"
+                    rec_bg = "rgba(0, 255, 136, 0.1)" if recommendation["direction"] == "LONG" else "rgba(243, 18, 96, 0.1)" if recommendation["direction"] == "SHORT" else "rgba(176, 176, 176, 0.1)"
+                    
+                    st.markdown(f"""
+                    <div style="background: linear-gradient(135deg, {rec_bg} 0%, rgba(0, 212, 255, 0.1) 100%); 
+                                border: 2px solid {rec_color}; border-radius: 12px; padding: 1.5rem; margin: 1rem 0;">
+                        <h2 style="color: {rec_color}; margin: 0; text-align: center; font-size: 2.5rem;">
+                            {recommendation["recommendation"]}
+                        </h2>
+                        <p style="color: #b0b0b0; text-align: center; margin: 0.5rem 0 0 0; font-size: 1.1rem;">
+                            Confidence: <strong style="color: {rec_color}">{recommendation["confidence"]}</strong> • 
+                            Score: <strong style="color: {rec_color}">{recommendation["total_score"]}</strong>
+                        </p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    # Analysis breakdown
+                    st.markdown("#### 📊 Analysis Breakdown")
+                    analysis_cols = st.columns(3)
+                    
+                    with analysis_cols[0]:
+                        st.markdown("**📈 SMA 20/200 Analysis**")
+                        sma_status = recommendation["sma_analysis"]["status"]
+                        sma_color = "#00ff88" if "Bullish" in sma_status or "Golden" in sma_status else "#f31260" if "Bearish" in sma_status or "Death" in sma_status else "#b0b0b0"
+                        st.markdown(f'<p style="color: {sma_color};">{recommendation["sma_analysis"]["description"]}</p>', unsafe_allow_html=True)
+                    
+                    with analysis_cols[1]:
+                        st.markdown("**📉 RSI Analysis**")
+                        rsi_status = recommendation["rsi_analysis"]["status"]
+                        rsi_color = "#00ff88" if "Oversold" in rsi_status or "Bullish" in rsi_status else "#f31260" if "Overbought" in rsi_status or "Bearish" in rsi_status else "#b0b0b0"
+                        st.markdown(f'<p style="color: {rsi_color};">{recommendation["rsi_analysis"]["description"]}</p>', unsafe_allow_html=True)
+                    
+                    with analysis_cols[2]:
+                        st.markdown("**📰 News Sentiment**")
+                        news_status = recommendation["news_analysis"]["status"]
+                        news_color = "#00ff88" if news_status == "Bullish" else "#f31260" if news_status == "Bearish" else "#b0b0b0"
+                        st.markdown(f'<p style="color: {news_color};">{recommendation["news_analysis"]["description"]}</p>', unsafe_allow_html=True)
+                        if "confidence" in recommendation["news_analysis"]:
+                            st.caption(f"Avg Confidence: {recommendation['news_analysis']['confidence']*100:.0f}%")
+                    
+                    # Trading parameters
+                    st.markdown("---")
+                    st.markdown("#### 🎯 Trading Parameters")
+                    param_cols = st.columns(4)
+                    
+                    with param_cols[0]:
+                        st.metric("Current Price", f"${recommendation['current_price']:.2f}")
+                    with param_cols[1]:
+                        st.metric("Entry Price", f"${recommendation['entry_price']:.2f}")
+                    with param_cols[2]:
+                        st.metric("Stop Loss", f"${recommendation['stop_loss']:.2f}", 
+                                 delta=f"-{recommendation['risk_pct']:.1f}%", delta_color="inverse")
+                    with param_cols[3]:
+                        st.metric("Target Price", f"${recommendation['target_price']:.2f}", 
+                                 delta=f"+{recommendation['reward_pct']:.1f}%", delta_color="normal")
+                    
+                    # Risk/Reward
+                    st.markdown("---")
+                    rr_cols = st.columns(3)
+                    with rr_cols[0]:
+                        st.metric("Risk/Reward Ratio", f"{recommendation['risk_reward_ratio']:.2f}:1")
+                    with rr_cols[1]:
+                        st.metric("Risk", f"{recommendation['risk_pct']:.2f}%")
+                    with rr_cols[2]:
+                        st.metric("Reward", f"{recommendation['reward_pct']:.2f}%")
+                    
+                    # Summary
+                    st.markdown("---")
+                    st.markdown("#### 📝 Summary")
+                    if recommendation["direction"] == "LONG":
+                        summary_text = f"""
+                        **Recommendation:** {recommendation["recommendation"]}
+                        
+                        Based on the analysis:
+                        - **SMA Trend:** {recommendation["sma_analysis"]["description"]}
+                        - **RSI Condition:** {recommendation["rsi_analysis"]["description"]}
+                        - **News Sentiment:** {recommendation["news_analysis"]["description"]}
+                        
+                        **Trading Plan:**
+                        - Enter LONG position at ${recommendation['entry_price']:.2f}
+                        - Set stop loss at ${recommendation['stop_loss']:.2f} ({recommendation['risk_pct']:.1f}% risk)
+                        - Target price: ${recommendation['target_price']:.2f} ({recommendation['reward_pct']:.1f}% reward)
+                        - Risk/Reward Ratio: {recommendation['risk_reward_ratio']:.2f}:1
+                        """
+                    elif recommendation["direction"] == "SHORT":
+                        summary_text = f"""
+                        **Recommendation:** {recommendation["recommendation"]}
+                        
+                        Based on the analysis:
+                        - **SMA Trend:** {recommendation["sma_analysis"]["description"]}
+                        - **RSI Condition:** {recommendation["rsi_analysis"]["description"]}
+                        - **News Sentiment:** {recommendation["news_analysis"]["description"]}
+                        
+                        **Trading Plan:**
+                        - Enter SHORT position at ${recommendation['entry_price']:.2f}
+                        - Set stop loss at ${recommendation['stop_loss']:.2f} ({recommendation['risk_pct']:.1f}% risk)
+                        - Target price: ${recommendation['target_price']:.2f} ({recommendation['reward_pct']:.1f}% reward)
+                        - Risk/Reward Ratio: {recommendation['risk_reward_ratio']:.2f}:1
+                        """
+                    else:
+                        summary_text = f"""
+                        **Recommendation:** {recommendation["recommendation"]}
+                        
+                        The analysis shows mixed signals. Consider waiting for clearer confirmation before entering a position.
+                        
+                        - **SMA Trend:** {recommendation["sma_analysis"]["description"]}
+                        - **RSI Condition:** {recommendation["rsi_analysis"]["description"]}
+                        - **News Sentiment:** {recommendation["news_analysis"]["description"]}
+                        """
+                    
+                    st.markdown(summary_text)
+                    
+                    # Close button
+                    if st.button("Close Report", key=f"close_ai_{t}"):
+                        st.session_state[f"show_ai_{t}"] = False
+                        st.rerun()
         with cols[1]:
             if df.empty:
                 st.warning(f"⚠️ No data available for {t}. This could be due to:\n- Yahoo Finance API issues\n- Network connectivity\n- Invalid ticker symbol\n\nTry refreshing the page or check your internet connection.")
