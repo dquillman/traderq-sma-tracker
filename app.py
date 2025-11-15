@@ -2724,7 +2724,7 @@ with tab1:
     # --- Per-ticker charts ---
     for t in selected:
         df = load_data(t, start_d, end_d, mode, interval=interval)
-        cols = st.columns([3, 1], gap="large")
+        cols = st.columns([5, 1], gap="large")
         with cols[0]:
             # Header with AI Recommendations button
             header_cols = st.columns([3, 1])
@@ -2897,6 +2897,17 @@ with tab1:
                         st.session_state[f"show_ai_{t}"] = False
                         st.rerun()
         with cols[1]:
+            # Container with auto-sizing for metrics card
+            st.markdown("""
+            <style>
+            div[data-testid="column"]:nth-of-type(2) {
+                width: fit-content !important;
+                min-width: fit-content !important;
+                max-width: fit-content !important;
+            }
+            </style>
+            """, unsafe_allow_html=True)
+            
             if df.empty:
                 st.warning(f"⚠️ No data available for {t}. This could be due to:\n- Yahoo Finance API issues\n- Network connectivity\n- Invalid ticker symbol\n\nTry refreshing the page or check your internet connection.")
             else:
