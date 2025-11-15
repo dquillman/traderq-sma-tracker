@@ -2756,55 +2756,55 @@ with tab1:
         df = load_data(t, start_d, end_d, mode, interval=interval)
         cols = st.columns([5, 1], gap="large")
         with cols[0]:
-            # Generate AI recommendation early to get the color for the button
-            ai_recommendation_cache_key = f"ai_rec_cache_{t}"
-            if ai_recommendation_cache_key not in st.session_state or st.session_state.get(f"show_ai_{t}", False):
-                with st.spinner(""):
-                    recommendation = generate_ai_recommendation(t, df, start_d, end_d, mode, interval)
-                    if "error" not in recommendation:
-                        st.session_state[ai_recommendation_cache_key] = recommendation
-            
-            # Get recommendation for button color
-            button_color = "#00d4ff"  # Default cyan
-            button_bg = "linear-gradient(90deg, #00d4ff 0%, #0099cc 100%)"
-            if ai_recommendation_cache_key in st.session_state:
-                rec = st.session_state[ai_recommendation_cache_key]
-                if "direction" in rec:
-                    if rec["direction"] == "LONG":
-                        button_color = "#00ff88"
-                        button_bg = "linear-gradient(90deg, #00ff88 0%, #17c964 100%)"
-                    elif rec["direction"] == "SHORT":
-                        button_color = "#f31260"
-                        button_bg = "linear-gradient(90deg, #f31260 0%, #cc0d4d 100%)"
-                    elif rec["direction"] == "HOLD":
-                        button_color = "#b0b0b0"
-                        button_bg = "linear-gradient(90deg, #b0b0b0 0%, #888888 100%)"
-            
             # Header with AI Recommendations button
             header_cols = st.columns([3, 1])
             with header_cols[0]:
                 st.markdown(f"**{t}**")
             with header_cols[1]:
-                # Apply dynamic button styling
-                button_selector = f"button[data-testid='baseButton-secondary'][aria-label*='AI Recommendations']"
-                # Use a more specific approach - target by key using CSS attribute selector
+                # Check if button was clicked and generate recommendation
+                ai_recommendation_cache_key = f"ai_rec_cache_{t}"
+                button_clicked = st.button("🤖 AI Recommendations", key=f"ai_rec_{t}", use_container_width=True)
+                
+                if button_clicked:
+                    st.session_state[f"show_ai_{t}"] = True
+                    # Generate recommendation immediately when clicked
+                    with st.spinner(""):
+                        recommendation = generate_ai_recommendation(t, df, start_d, end_d, mode, interval)
+                        if "error" not in recommendation:
+                            st.session_state[ai_recommendation_cache_key] = recommendation
+                            st.rerun()
+                
+                # Get recommendation for button color (after generation)
+                button_color = "#00d4ff"  # Default cyan
+                button_bg = "linear-gradient(90deg, #00d4ff 0%, #0099cc 100%)"
+                if ai_recommendation_cache_key in st.session_state:
+                    rec = st.session_state[ai_recommendation_cache_key]
+                    if "direction" in rec:
+                        if rec["direction"] == "LONG":
+                            button_color = "#00ff88"
+                            button_bg = "linear-gradient(90deg, #00ff88 0%, #17c964 100%)"
+                        elif rec["direction"] == "SHORT":
+                            button_color = "#f31260"
+                            button_bg = "linear-gradient(90deg, #f31260 0%, #cc0d4d 100%)"
+                        elif rec["direction"] == "HOLD":
+                            button_color = "#b0b0b0"
+                            button_bg = "linear-gradient(90deg, #b0b0b0 0%, #888888 100%)"
+                
+                # Apply dynamic button styling based on recommendation
                 st.markdown(f"""
                 <style>
-                div[data-testid="column"]:nth-child(2) button[data-testid="baseButton-secondary"],
-                div[data-testid="column"]:nth-child(2) button[data-testid="baseButton-primary"] {{
+                button[data-testid="baseButton-secondary"][aria-label*="AI Recommendations"],
+                button[data-testid="baseButton-primary"][aria-label*="AI Recommendations"] {{
                     background: {button_bg} !important;
                     border-color: {button_color} !important;
                 }}
-                div[data-testid="column"]:nth-child(2) button[data-testid="baseButton-secondary"]:hover,
-                div[data-testid="column"]:nth-child(2) button[data-testid="baseButton-primary"]:hover {{
+                button[data-testid="baseButton-secondary"][aria-label*="AI Recommendations"]:hover,
+                button[data-testid="baseButton-primary"][aria-label*="AI Recommendations"]:hover {{
                     background: {button_bg} !important;
-                    opacity: 0.9 !important;
+                    opacity: 0.85 !important;
                 }}
                 </style>
                 """, unsafe_allow_html=True)
-                
-                if st.button("🤖 AI Recommendations", key=f"ai_rec_{t}", use_container_width=True):
-                    st.session_state[f"show_ai_{t}"] = True
             
             fig = make_chart(df, f"{t} — SMA {SMA_SHORT}/{SMA_LONG}", theme, pretouch,
                             show_volume=show_volume, show_rsi=show_rsi, 
@@ -2842,8 +2842,15 @@ with tab1:
             
             # AI Recommendations Report
             if st.session_state.get(f"show_ai_{t}", False):
-                with st.spinner(f"🤖 Analyzing {t}... Generating comprehensive AI recommendation..."):
-                    recommendation = generate_ai_recommendation(t, df, start_d, end_d, mode, interval)
+                # Use cached recommendation if available
+                ai_recommendation_cache_key = f"ai_rec_cache_{t}"
+                if ai_recommendation_cache_key in st.session_state:
+                    recommendation = st.session_state[ai_recommendation_cache_key]
+                else:
+                    with st.spinner(f"🤖 Analyzing {t}... Generating comprehensive AI recommendation..."):
+                        recommendation = generate_ai_recommendation(t, df, start_d, end_d, mode, interval)
+                        if "error" not in recommendation:
+                            st.session_state[ai_recommendation_cache_key] = recommendation
                 
                 if "error" in recommendation:
                     st.error(f"❌ {recommendation['error']}")
