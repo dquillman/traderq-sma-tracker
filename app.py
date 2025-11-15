@@ -1943,7 +1943,7 @@ def make_chart(df: pd.DataFrame, title: str, theme: str, pretouch_pct: float | N
             hoverlabel=dict(
                 bgcolor="rgba(0, 0, 0, 0.9)",
                 bordercolor="rgba(0, 212, 255, 0.8)",
-                font_size=39,  # 3x the default size (~13px)
+                font_size=20,  # 1.5x the default size (~13px) - reduced by 50% from 39px
                 font_family="Arial, sans-serif",
                 font_color="white"
             )
