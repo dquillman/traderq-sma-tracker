@@ -2425,6 +2425,25 @@ st.markdown("""
         transform: translateY(-2px) !important;
     }
     
+    /* Ensure buttons don't look selected/active by default */
+    .stButton > button:not(:active):not(:focus),
+    button[data-testid="baseButton-secondary"]:not(:active):not(:focus),
+    button[data-testid="baseButton-primary"]:not(:active):not(:focus) {
+        background: linear-gradient(90deg, #00d4ff 0%, #0099cc 100%) !important;
+    }
+    
+    /* Active/focus state styling */
+    .stButton > button:active,
+    .stButton > button:focus,
+    button[data-testid="baseButton-secondary"]:active,
+    button[data-testid="baseButton-secondary"]:focus,
+    button[data-testid="baseButton-primary"]:active,
+    button[data-testid="baseButton-primary"]:focus {
+        background: linear-gradient(90deg, #0099cc 0%, #0077aa 100%) !important;
+        box-shadow: 0 2px 10px rgba(0, 212, 255, 0.4) !important;
+        transform: translateY(0) !important;
+    }
+    
     /* Selectbox and inputs */
     .stSelectbox > div > div {
         background-color: #1a1f3a;
