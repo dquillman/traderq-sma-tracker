@@ -2396,23 +2396,33 @@ st.markdown("""
         color: #00ff88;
     }
     
-    /* Buttons */
-    .stButton > button {
-        background: linear-gradient(90deg, #00d4ff 0%, #0099cc 100%);
-        color: white;
-        border: none;
-        border-radius: 8px;
-        padding: 0.78125rem 2.34375rem;  /* Increased by another 25%: 0.625*1.25=0.78125, 1.875*1.25=2.34375 */
-        font-weight: 600;
-        font-size: 1.5625em;  /* Increased by another 25%: 1.25*1.25=1.5625 */
-        transition: all 0.3s ease;
-        box-shadow: 0 4px 15px rgba(0, 212, 255, 0.3);
+    /* Buttons - More specific selectors to ensure styles apply */
+    .stButton > button,
+    button[data-testid="baseButton-secondary"],
+    button[data-testid="baseButton-primary"],
+    button.stDownloadButton,
+    div[data-testid="stDownloadButton"] > button {
+        background: linear-gradient(90deg, #00d4ff 0%, #0099cc 100%) !important;
+        color: white !important;
+        border: none !important;
+        border-radius: 8px !important;
+        padding: 0.78125rem 2.34375rem !important;  /* Increased by another 25%: 0.625*1.25=0.78125, 1.875*1.25=2.34375 */
+        font-weight: 600 !important;
+        font-size: 1.5625em !important;  /* Increased by another 25%: 1.25*1.25=1.5625 */
+        line-height: 1.5 !important;
+        min-height: 3rem !important;
+        transition: all 0.3s ease !important;
+        box-shadow: 0 4px 15px rgba(0, 212, 255, 0.3) !important;
     }
     
-    .stButton > button:hover {
-        background: linear-gradient(90deg, #00ff88 0%, #00d4ff 100%);
-        box-shadow: 0 6px 20px rgba(0, 212, 255, 0.5);
-        transform: translateY(-2px);
+    .stButton > button:hover,
+    button[data-testid="baseButton-secondary"]:hover,
+    button[data-testid="baseButton-primary"]:hover,
+    button.stDownloadButton:hover,
+    div[data-testid="stDownloadButton"] > button:hover {
+        background: linear-gradient(90deg, #00ff88 0%, #00d4ff 100%) !important;
+        box-shadow: 0 6px 20px rgba(0, 212, 255, 0.5) !important;
+        transform: translateY(-2px) !important;
     }
     
     /* Selectbox and inputs */
