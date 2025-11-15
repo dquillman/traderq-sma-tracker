@@ -359,8 +359,8 @@ def find_support_resistance(df: pd.DataFrame, window: int = 20, lookback: int = 
 
 # --- Pattern Detection ---
 def detect_patterns(df: pd.DataFrame) -> list:
-    """Detect common chart patterns."""
-    if df.empty or len(df) < 50:
+    """Detect common chart patterns using local extrema."""
+    if df.empty or len(df) < 30:
         return []
     
     patterns = []
@@ -368,34 +368,195 @@ def detect_patterns(df: pd.DataFrame) -> list:
     highs = df["high"].values
     lows = df["low"].values
     
-    # Simple pattern detection (can be enhanced)
-    # Double Top
-    if len(highs) >= 20:
-        recent_highs = highs[-20:]
-        max_idx = np.argmax(recent_highs)
-        if max_idx > 5 and max_idx < len(recent_highs) - 5:
-            left_peak = recent_highs[max_idx - 5:max_idx].max()
-            right_peak = recent_highs[max_idx:max_idx + 5].max()
-            if abs(left_peak - right_peak) / left_peak < 0.02:  # Within 2%
+    # Use scipy to find local peaks and troughs
+    from scipy.signal import argrelextrema
+    
+    # Find local peaks (maxima) and troughs (minima)
+    # Look for peaks/troughs within a window of 5-10 periods
+    window = min(10, len(highs) // 4)
+    if window < 3:
+        window = 3
+    
+    peak_indices = argrelextrema(highs, np.greater, order=window)[0]
+    trough_indices = argrelextrema(lows, np.less, order=window)[0]
+    
+    # Focus on recent data (last 60 periods or all if less)
+    lookback = min(60, len(df))
+    recent_start = len(df) - lookback
+    peak_indices = peak_indices[peak_indices >= recent_start]
+    trough_indices = trough_indices[trough_indices >= recent_start]
+    
+    # Double Top: Two similar peaks with a trough between them
+    if len(peak_indices) >= 2:
+        for i in range(len(peak_indices) - 1):
+            peak1_idx = peak_indices[i]
+            peak2_idx = peak_indices[i + 1]
+            peak1_val = highs[peak1_idx]
+            peak2_val = highs[peak2_idx]
+            
+            # Check if peaks are similar (within 3%)
+            if abs(peak1_val - peak2_val) / max(peak1_val, peak2_val) < 0.03:
+                # Check if there's a trough between them
+                trough_between = trough_indices[(trough_indices > peak1_idx) & (trough_indices < peak2_idx)]
+                if len(trough_between) > 0:
+                    # Check if price declined after second peak (bearish)
+                    if peak2_idx < len(highs) - 5:
+                        post_peak_avg = highs[peak2_idx + 1:peak2_idx + 5].mean()
+                        if post_peak_avg < peak2_val * 0.98:  # Price declined after peak
+                            patterns.append({
+                                "type": "Double Top",
+                                "confidence": 0.7,
+                                "description": f"Bearish reversal pattern: Two similar peaks at ${peak1_val:.2f} and ${peak2_val:.2f}"
+                            })
+                            break  # Only report one double top
+    
+    # Double Bottom: Two similar troughs with a peak between them
+    if len(trough_indices) >= 2:
+        for i in range(len(trough_indices) - 1):
+            trough1_idx = trough_indices[i]
+            trough2_idx = trough_indices[i + 1]
+            trough1_val = lows[trough1_idx]
+            trough2_val = lows[trough2_idx]
+            
+            # Check if troughs are similar (within 3%)
+            if abs(trough1_val - trough2_val) / max(trough1_val, trough2_val) < 0.03:
+                # Check if there's a peak between them
+                peak_between = peak_indices[(peak_indices > trough1_idx) & (peak_indices < trough2_idx)]
+                if len(peak_between) > 0:
+                    # Check if price rose after second trough (bullish)
+                    if trough2_idx < len(lows) - 5:
+                        post_trough_avg = lows[trough2_idx + 1:trough2_idx + 5].mean()
+                        if post_trough_avg > trough2_val * 1.02:  # Price rose after trough
+                            patterns.append({
+                                "type": "Double Bottom",
+                                "confidence": 0.7,
+                                "description": f"Bullish reversal pattern: Two similar troughs at ${trough1_val:.2f} and ${trough2_val:.2f}"
+                            })
+                            break  # Only report one double bottom
+    
+    # Head and Shoulders: Three peaks, middle one highest
+    if len(peak_indices) >= 3:
+        for i in range(len(peak_indices) - 2):
+            left_shoulder_idx = peak_indices[i]
+            head_idx = peak_indices[i + 1]
+            right_shoulder_idx = peak_indices[i + 2]
+            
+            left_shoulder = highs[left_shoulder_idx]
+            head = highs[head_idx]
+            right_shoulder = highs[right_shoulder_idx]
+            
+            # Head should be highest, shoulders similar
+            if (head > left_shoulder * 1.02 and head > right_shoulder * 1.02 and
+                abs(left_shoulder - right_shoulder) / max(left_shoulder, right_shoulder) < 0.05):
+                # Check for neckline (troughs between peaks)
+                trough1 = trough_indices[(trough_indices > left_shoulder_idx) & (trough_indices < head_idx)]
+                trough2 = trough_indices[(trough_indices > head_idx) & (trough_indices < right_shoulder_idx)]
+                if len(trough1) > 0 and len(trough2) > 0:
+                    neckline1 = lows[trough1[0]]
+                    neckline2 = lows[trough2[0]]
+                    # Neckline should be similar
+                    if abs(neckline1 - neckline2) / max(neckline1, neckline2) < 0.05:
+                        patterns.append({
+                            "type": "Head and Shoulders",
+                            "confidence": 0.75,
+                            "description": f"Bearish reversal: Head at ${head:.2f}, shoulders at ${left_shoulder:.2f} and ${right_shoulder:.2f}"
+                        })
+                        break
+    
+    # Inverse Head and Shoulders: Three troughs, middle one lowest
+    if len(trough_indices) >= 3:
+        for i in range(len(trough_indices) - 2):
+            left_shoulder_idx = trough_indices[i]
+            head_idx = trough_indices[i + 1]
+            right_shoulder_idx = trough_indices[i + 2]
+            
+            left_shoulder = lows[left_shoulder_idx]
+            head = lows[head_idx]
+            right_shoulder = lows[right_shoulder_idx]
+            
+            # Head should be lowest, shoulders similar
+            if (head < left_shoulder * 0.98 and head < right_shoulder * 0.98 and
+                abs(left_shoulder - right_shoulder) / max(left_shoulder, right_shoulder) < 0.05):
+                # Check for neckline (peaks between troughs)
+                peak1 = peak_indices[(peak_indices > left_shoulder_idx) & (peak_indices < head_idx)]
+                peak2 = peak_indices[(peak_indices > head_idx) & (peak_indices < right_shoulder_idx)]
+                if len(peak1) > 0 and len(peak2) > 0:
+                    neckline1 = highs[peak1[0]]
+                    neckline2 = highs[peak2[0]]
+                    # Neckline should be similar
+                    if abs(neckline1 - neckline2) / max(neckline1, neckline2) < 0.05:
+                        patterns.append({
+                            "type": "Inverse Head and Shoulders",
+                            "confidence": 0.75,
+                            "description": f"Bullish reversal: Head at ${head:.2f}, shoulders at ${left_shoulder:.2f} and ${right_shoulder:.2f}"
+                        })
+                        break
+    
+    # Ascending Triangle: Higher lows, similar highs
+    if len(peak_indices) >= 2 and len(trough_indices) >= 2:
+        recent_peaks = peak_indices[-3:] if len(peak_indices) >= 3 else peak_indices
+        recent_troughs = trough_indices[-3:] if len(trough_indices) >= 3 else trough_indices
+        
+        if len(recent_peaks) >= 2 and len(recent_troughs) >= 2:
+            peak_vals = highs[recent_peaks]
+            trough_vals = lows[recent_troughs]
+            
+            # Peaks should be similar (resistance level)
+            peak_std = np.std(peak_vals) / np.mean(peak_vals)
+            # Troughs should be ascending
+            trough_trend = (trough_vals[-1] - trough_vals[0]) / trough_vals[0]
+            
+            if peak_std < 0.02 and trough_trend > 0.01:  # Stable resistance, rising support
                 patterns.append({
-                    "type": "Double Top",
-                    "confidence": 0.6,
-                    "description": "Bearish reversal pattern detected"
+                    "type": "Ascending Triangle",
+                    "confidence": 0.65,
+                    "description": "Bullish continuation: Rising support meeting resistance"
                 })
     
-    # Double Bottom
-    if len(lows) >= 20:
-        recent_lows = lows[-20:]
-        min_idx = np.argmin(recent_lows)
-        if min_idx > 5 and min_idx < len(recent_lows) - 5:
-            left_trough = recent_lows[min_idx - 5:min_idx].min()
-            right_trough = recent_lows[min_idx:min_idx + 5].min()
-            if abs(left_trough - right_trough) / left_trough < 0.02:
+    # Descending Triangle: Lower highs, similar lows
+    if len(peak_indices) >= 2 and len(trough_indices) >= 2:
+        recent_peaks = peak_indices[-3:] if len(peak_indices) >= 3 else peak_indices
+        recent_troughs = trough_indices[-3:] if len(trough_indices) >= 3 else trough_indices
+        
+        if len(recent_peaks) >= 2 and len(recent_troughs) >= 2:
+            peak_vals = highs[recent_peaks]
+            trough_vals = lows[recent_troughs]
+            
+            # Troughs should be similar (support level)
+            trough_std = np.std(trough_vals) / np.mean(trough_vals)
+            # Peaks should be descending
+            peak_trend = (peak_vals[-1] - peak_vals[0]) / peak_vals[0]
+            
+            if trough_std < 0.02 and peak_trend < -0.01:  # Stable support, falling resistance
                 patterns.append({
-                    "type": "Double Bottom",
-                    "confidence": 0.6,
-                    "description": "Bullish reversal pattern detected"
+                    "type": "Descending Triangle",
+                    "confidence": 0.65,
+                    "description": "Bearish continuation: Falling resistance meeting support"
                 })
+    
+    # If no patterns found, check for basic trend patterns
+    if not patterns and len(df) >= 20:
+        recent_prices = prices[-20:]
+        price_trend = (recent_prices[-1] - recent_prices[0]) / recent_prices[0]
+        
+        if price_trend > 0.05:
+            patterns.append({
+                "type": "Uptrend",
+                "confidence": 0.5,
+                "description": f"Strong upward trend: {price_trend*100:.1f}% gain in last 20 periods"
+            })
+        elif price_trend < -0.05:
+            patterns.append({
+                "type": "Downtrend",
+                "confidence": 0.5,
+                "description": f"Strong downward trend: {price_trend*100:.1f}% decline in last 20 periods"
+            })
+        else:
+            patterns.append({
+                "type": "Sideways/Consolidation",
+                "confidence": 0.4,
+                "description": "Price moving in a range, no clear trend"
+            })
     
     return patterns
 
