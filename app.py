@@ -2763,18 +2763,8 @@ with tab1:
             with header_cols[1]:
                 # Check if button was clicked and generate recommendation
                 ai_recommendation_cache_key = f"ai_rec_cache_{t}"
-                button_clicked = st.button("🤖 AI Recommendations", key=f"ai_rec_{t}", use_container_width=True)
                 
-                if button_clicked:
-                    st.session_state[f"show_ai_{t}"] = True
-                    # Generate recommendation immediately when clicked
-                    with st.spinner(""):
-                        recommendation = generate_ai_recommendation(t, df, start_d, end_d, mode, interval)
-                        if "error" not in recommendation:
-                            st.session_state[ai_recommendation_cache_key] = recommendation
-                            st.rerun()
-                
-                # Get recommendation for button color (after generation)
+                # Get recommendation for button color (before rendering button)
                 button_color = "#00d4ff"  # Default cyan
                 button_bg = "linear-gradient(90deg, #00d4ff 0%, #0099cc 100%)"
                 if ai_recommendation_cache_key in st.session_state:
@@ -2790,20 +2780,79 @@ with tab1:
                             button_color = "#b0b0b0"
                             button_bg = "linear-gradient(90deg, #b0b0b0 0%, #888888 100%)"
                 
-                # Apply dynamic button styling based on recommendation
+                # Create a unique marker div to identify this button's location
+                button_marker_id = f"ai_rec_marker_{t.replace('-', '_').replace('.', '_')}"
+                st.markdown(f'<div id="{button_marker_id}" style="display:none;"></div>', unsafe_allow_html=True)
+                
+                button_clicked = st.button("🤖 AI Recommendations", key=f"ai_rec_{t}", use_container_width=True)
+                
+                if button_clicked:
+                    st.session_state[f"show_ai_{t}"] = True
+                    # Generate recommendation immediately when clicked
+                    with st.spinner(""):
+                        recommendation = generate_ai_recommendation(t, df, start_d, end_d, mode, interval)
+                        if "error" not in recommendation:
+                            st.session_state[ai_recommendation_cache_key] = recommendation
+                            st.rerun()
+                
+                # Inject JavaScript AFTER button is rendered to style it
                 st.markdown(f"""
-                <style>
-                button[data-testid="baseButton-secondary"][aria-label*="AI Recommendations"],
-                button[data-testid="baseButton-primary"][aria-label*="AI Recommendations"] {{
-                    background: {button_bg} !important;
-                    border-color: {button_color} !important;
-                }}
-                button[data-testid="baseButton-secondary"][aria-label*="AI Recommendations"]:hover,
-                button[data-testid="baseButton-primary"][aria-label*="AI Recommendations"]:hover {{
-                    background: {button_bg} !important;
-                    opacity: 0.85 !important;
-                }}
-                </style>
+                <script>
+                (function() {{
+                    function styleAIButton() {{
+                        // Find the marker div
+                        const marker = document.getElementById('{button_marker_id}');
+                        if (!marker) return;
+                        
+                        // Find the button near the marker (should be in the same column)
+                        const column = marker.closest('[data-testid="column"]');
+                        if (!column) return;
+                        
+                        // Find button with "AI Recommendations" text in this column
+                        const buttons = column.querySelectorAll('button');
+                        buttons.forEach(function(btn) {{
+                            const btnText = (btn.textContent || btn.innerText || '').trim();
+                            if (btnText.includes('AI Recommendations') || btnText.includes('🤖')) {{
+                                // Apply styles directly
+                                btn.style.setProperty('background', '{button_bg}', 'important');
+                                btn.style.setProperty('border-color', '{button_color}', 'important');
+                                btn.style.setProperty('background-image', 'none', 'important');
+                                btn.style.setProperty('background-color', '{button_color}', 'important');
+                                
+                                // Override hover state
+                                btn.addEventListener('mouseenter', function() {{
+                                    this.style.setProperty('background', '{button_bg}', 'important');
+                                    this.style.setProperty('opacity', '0.85', 'important');
+                                }});
+                                btn.addEventListener('mouseleave', function() {{
+                                    this.style.setProperty('background', '{button_bg}', 'important');
+                                    this.style.setProperty('opacity', '1', 'important');
+                                }});
+                            }}
+                        }});
+                    }}
+                    
+                    // Run multiple times to catch the button
+                    if (document.readyState === 'loading') {{
+                        document.addEventListener('DOMContentLoaded', styleAIButton);
+                    }} else {{
+                        styleAIButton();
+                    }}
+                    setTimeout(styleAIButton, 100);
+                    setTimeout(styleAIButton, 300);
+                    setTimeout(styleAIButton, 600);
+                    
+                    // Watch for DOM changes
+                    const observer = new MutationObserver(function(mutations) {{
+                        styleAIButton();
+                    }});
+                    observer.observe(document.body, {{
+                        childList: true,
+                        subtree: true,
+                        attributes: false
+                    }});
+                }})();
+                </script>
                 """, unsafe_allow_html=True)
             
             fig = make_chart(df, f"{t} — SMA {SMA_SHORT}/{SMA_LONG}", theme, pretouch,
