@@ -1941,11 +1941,11 @@ def make_chart(df: pd.DataFrame, title: str, theme: str, pretouch_pct: float | N
             template="plotly_dark" if theme == "Dark" else "plotly_white", 
             title=title,
             hoverlabel=dict(
-                bgcolor="rgba(0, 0, 0, 0.9)",
-                bordercolor="rgba(0, 212, 255, 0.8)",
-                font_size=20,  # 1.5x the default size (~13px) - reduced by 50% from 39px
+                bgcolor="rgba(255, 255, 255, 0.95)" if theme == "Light" else "rgba(0, 0, 0, 0.9)",
+                bordercolor="rgba(0, 123, 255, 0.8)" if theme == "Light" else "rgba(0, 212, 255, 0.8)",
+                font_size=20,  # 1.5x the default size (~13px)
                 font_family="Arial, sans-serif",
-                font_color="white"
+                font_color="#212529" if theme == "Light" else "white"
             )
         )
         return fig
@@ -1954,11 +1954,25 @@ def make_chart(df: pd.DataFrame, title: str, theme: str, pretouch_pct: float | N
     df["SMA20"] = _sma(df["close"], SMA_SHORT)
     df["SMA200"] = _sma(df["close"], SMA_LONG)
     
-    # Set neutral background (the fill between SMAs will provide the color)
-    plot_bgcolor = "rgba(0, 0, 0, 0)" if theme == "Dark" else "rgba(255, 255, 255, 0)"
-    paper_bgcolor = "rgba(0, 0, 0, 0)" if theme == "Dark" else "rgba(255, 255, 255, 0)"
-
-    template = "plotly_dark" if theme == "Dark" else "plotly_white"
+    # Set background colors based on theme
+    if theme == "Dark":
+        plot_bgcolor = "rgba(0, 0, 0, 0)"
+        paper_bgcolor = "rgba(0, 0, 0, 0)"
+        template = "plotly_dark"
+        hover_bg = "rgba(0, 0, 0, 0.9)"
+        hover_border = "rgba(0, 212, 255, 0.8)"
+        hover_text = "white"
+        grid_color = "rgba(128,128,128,0.2)"
+        text_color = "#e8e6e3"
+    else:  # Light mode
+        plot_bgcolor = "#f8f9fa"
+        paper_bgcolor = "#ffffff"
+        template = "plotly_white"
+        hover_bg = "rgba(255, 255, 255, 0.95)"
+        hover_border = "rgba(0, 123, 255, 0.8)"
+        hover_text = "#212529"
+        grid_color = "rgba(200,200,200,0.3)"
+        text_color = "#212529"
     
     # Determine number of subplots needed
     num_subplots = 1  # Main price chart
@@ -2013,15 +2027,23 @@ def make_chart(df: pd.DataFrame, title: str, theme: str, pretouch_pct: float | N
             upper = segment_df[["SMA20", "SMA200"]].max(axis=1)
             lower = segment_df[["SMA20", "SMA200"]].min(axis=1)
             
-            # Set color based on which is on top
+            # Set color based on which is on top and theme
             if is_sma20_top:
                 # SMA20 on top (green/blue) - green fill
-                fillcolor = "rgba(23, 201, 100, 0.2)"
-                line_color = "rgba(23, 201, 100, 0.3)"
+                if theme == "Light":
+                    fillcolor = "rgba(40, 167, 69, 0.15)"
+                    line_color = "rgba(40, 167, 69, 0.25)"
+                else:
+                    fillcolor = "rgba(23, 201, 100, 0.2)"
+                    line_color = "rgba(23, 201, 100, 0.3)"
             else:
                 # SMA200 on top (red) - red fill
-                fillcolor = "rgba(243, 18, 96, 0.2)"
-                line_color = "rgba(243, 18, 96, 0.3)"
+                if theme == "Light":
+                    fillcolor = "rgba(220, 53, 69, 0.15)"
+                    line_color = "rgba(220, 53, 69, 0.25)"
+                else:
+                    fillcolor = "rgba(243, 18, 96, 0.2)"
+                    line_color = "rgba(243, 18, 96, 0.3)"
             
             # Add filled area
             fig.add_trace(go.Scatter(
@@ -2053,16 +2075,18 @@ def make_chart(df: pd.DataFrame, title: str, theme: str, pretouch_pct: float | N
     
     # Add SMA20 line if enabled
     if show_sma20:
+        sma20_color = "#0066cc" if theme == "Light" else "#4fa3ff"
         fig.add_trace(go.Scatter(
             x=df.index, y=df["SMA20"], mode="lines", name=f"SMA {SMA_SHORT}", 
-            line=dict(width=2, color="#4fa3ff")
+            line=dict(width=2, color=sma20_color)
         ), row=row, col=1)
     
     # Add SMA200 line if enabled
     if show_sma200:
+        sma200_color = "#cc0000" if theme == "Light" else "#ff6b6b"
         fig.add_trace(go.Scatter(
             x=df.index, y=df["SMA200"], mode="lines", name=f"SMA {SMA_LONG}", 
-            line=dict(width=2, color="#ff6b6b")
+            line=dict(width=2, color=sma200_color)
         ), row=row, col=1)
 
     # Bollinger Bands
@@ -2119,8 +2143,15 @@ def make_chart(df: pd.DataFrame, title: str, theme: str, pretouch_pct: float | N
     # Volume subplot
     if show_volume and not df["volume"].isna().all():
         row += 1
-        colors = ["#17c964" if df["close"].iloc[i] >= df["open"].iloc[i] else "#f31260" 
-                 for i in range(len(df))]
+        # Adjust volume colors for light mode
+        if theme == "Light":
+            colors = ["#28a745" if df["close"].iloc[i] >= df["open"].iloc[i] else "#dc3545" 
+                     for i in range(len(df))]
+            vol_sma_color = "#495057"
+        else:
+            colors = ["#17c964" if df["close"].iloc[i] >= df["open"].iloc[i] else "#f31260" 
+                     for i in range(len(df))]
+            vol_sma_color = "#888"
         fig.add_trace(go.Bar(
             x=df.index, y=df["volume"], name="Volume",
             marker_color=colors, opacity=0.6
@@ -2130,7 +2161,7 @@ def make_chart(df: pd.DataFrame, title: str, theme: str, pretouch_pct: float | N
         vol_sma = _volume_sma(df["volume"], window=20)
         fig.add_trace(go.Scatter(
             x=df.index, y=vol_sma, mode="lines", name="Vol SMA 20",
-            line=dict(width=1, color="#888")
+            line=dict(width=1, color=vol_sma_color)
         ), row=row, col=1)
         
         fig.update_yaxes(title_text="Volume", row=row, col=1)
@@ -2139,15 +2170,19 @@ def make_chart(df: pd.DataFrame, title: str, theme: str, pretouch_pct: float | N
     if show_rsi:
         row += 1
         rsi = _rsi(df["close"], window=14)
+        rsi_color = "#6f42c1" if theme == "Light" else "#9b59b6"
         fig.add_trace(go.Scatter(
             x=df.index, y=rsi, mode="lines", name="RSI",
-            line=dict(width=2, color="#9b59b6")
+            line=dict(width=2, color=rsi_color)
         ), row=row, col=1)
         
         # RSI levels
-        fig.add_hline(y=70, line_dash="dash", line_color="red", opacity=0.5, row=row, col=1)
-        fig.add_hline(y=30, line_dash="dash", line_color="green", opacity=0.5, row=row, col=1)
-        fig.add_hline(y=50, line_dash="dot", line_color="gray", opacity=0.3, row=row, col=1)
+        overbought_color = "#dc3545" if theme == "Light" else "red"
+        oversold_color = "#28a745" if theme == "Light" else "green"
+        neutral_color = "#6c757d" if theme == "Light" else "gray"
+        fig.add_hline(y=70, line_dash="dash", line_color=overbought_color, opacity=0.5, row=row, col=1)
+        fig.add_hline(y=30, line_dash="dash", line_color=oversold_color, opacity=0.5, row=row, col=1)
+        fig.add_hline(y=50, line_dash="dot", line_color=neutral_color, opacity=0.3, row=row, col=1)
         
         fig.update_yaxes(title_text="RSI", range=[0, 100], row=row, col=1)
 
@@ -2155,23 +2190,29 @@ def make_chart(df: pd.DataFrame, title: str, theme: str, pretouch_pct: float | N
     if show_macd:
         row += 1
         macd_line, signal_line, histogram = _macd(df["close"])
+        macd_color = "#0056b3" if theme == "Light" else "#3498db"
+        signal_color = "#c82333" if theme == "Light" else "#e74c3c"
         fig.add_trace(go.Scatter(
             x=df.index, y=macd_line, mode="lines", name="MACD",
-            line=dict(width=2, color="#3498db")
+            line=dict(width=2, color=macd_color)
         ), row=row, col=1)
         fig.add_trace(go.Scatter(
             x=df.index, y=signal_line, mode="lines", name="Signal",
-            line=dict(width=2, color="#e74c3c")
+            line=dict(width=2, color=signal_color)
         ), row=row, col=1)
         
-        # Histogram
-        colors_hist = ["#17c964" if h >= 0 else "#f31260" for h in histogram]
+        # Histogram - adjust colors for light mode
+        if theme == "Light":
+            colors_hist = ["#28a745" if h >= 0 else "#dc3545" for h in histogram]
+        else:
+            colors_hist = ["#17c964" if h >= 0 else "#f31260" for h in histogram]
         fig.add_trace(go.Bar(
             x=df.index, y=histogram, name="Histogram",
             marker_color=colors_hist, opacity=0.6
         ), row=row, col=1)
         
-        fig.add_hline(y=0, line_dash="dot", line_color="gray", opacity=0.3, row=row, col=1)
+        zero_line_color = "#6c757d" if theme == "Light" else "gray"
+        fig.add_hline(y=0, line_dash="dot", line_color=zero_line_color, opacity=0.3, row=row, col=1)
         fig.update_yaxes(title_text="MACD", row=row, col=1)
 
     fig.update_layout(
@@ -2183,17 +2224,24 @@ def make_chart(df: pd.DataFrame, title: str, theme: str, pretouch_pct: float | N
         plot_bgcolor=plot_bgcolor,
         paper_bgcolor=paper_bgcolor,
         hoverlabel=dict(
-            bgcolor="rgba(0, 0, 0, 0.9)",
-            bordercolor="rgba(0, 212, 255, 0.8)",
-            font_size=39,  # 3x the default size (~13px)
+            bgcolor=hover_bg,
+            bordercolor=hover_border,
+            font_size=20,  # 1.5x the default size (~13px)
             font_family="Arial, sans-serif",
-            font_color="white"
-        )
+            font_color=hover_text
+        ),
+        font=dict(color=text_color, size=12)
     )
     
-    # Update the main chart's background color
-    fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor="rgba(128,128,128,0.2)", row=row, col=1)
-    fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor="rgba(128,128,128,0.2)", row=row, col=1)
+    # Update the main chart's background color and grid
+    fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor=grid_color, row=row, col=1)
+    fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor=grid_color, row=row, col=1)
+    
+    # Update all subplot axes for light mode
+    if theme == "Light":
+        for i in range(1, num_subplots + 1):
+            fig.update_xaxes(gridcolor=grid_color, row=i, col=1)
+            fig.update_yaxes(gridcolor=grid_color, row=i, col=1)
     
     return fig
 
