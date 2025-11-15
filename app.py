@@ -2704,7 +2704,7 @@ with tab6:
                             st.caption(f"📊 Title Analysis: {title_sentiment.get('bullish_keywords', 0)} bullish, {title_sentiment.get('bearish_keywords', 0)} bearish keywords")
                     
                     # Debug: Show raw data structure (collapsed)
-                    with st.expander("🔍 Debug: Raw Article Data", expanded=False):
+                    if st.checkbox(f"🔍 Show Raw Data", key=f"debug_{i}_{news_ticker}", value=False):
                         st.json(item)
         else:
             st.warning(f"❌ No news found for {news_ticker}")
