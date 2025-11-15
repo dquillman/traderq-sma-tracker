@@ -13,12 +13,14 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import plotly.graph_objects as go
+import plotly.graph_objects as go
+
 
 def add_cross_markers(fig: go.Figure, df: pd.DataFrame,
                       price_col: str = "Close",
                       s20: str = "SMA20",
-                      s200: str = "SMA200") -> None:
+                      s200: str = "SMA200",
+                      row: int = 1, col: int = 1) -> None:
     """
     Golden cross: 20 crosses above 200 (green triangle-up)
     Death  cross: 20 crosses below 200 (red triangle-down)
@@ -42,7 +44,7 @@ def add_cross_markers(fig: go.Figure, df: pd.DataFrame,
                         line=dict(width=1, color="#0b3820")),
             hovertemplate="Golden: %{x|%Y-%m-%d}<br>Price: %{y:.2f}<extra></extra>",
             showlegend=True
-        ))
+        ), row=row, col=col)
     if len(xd):
         fig.add_trace(go.Scatter(
             x=xd, y=yd, mode="markers", name="Death Cross",
@@ -50,15 +52,15 @@ def add_cross_markers(fig: go.Figure, df: pd.DataFrame,
                         line=dict(width=1, color="#4a0b19")),
             hovertemplate="Death: %{x|%Y-%m-%d}<br>Price: %{y:.2f}<extra></extra>",
             showlegend=True
-        ))
+        ), row=row, col=col)
 
 
 import streamlit as st
 import ui_glow_patch
 import yf_patch  # glow+session patch
 
-APP_VERSION = "v1.4.7"
-# v1.4.7 – persistent custom tickers + reorder charts + desktop launcher with icon
+APP_VERSION = "v1.5.1"
+# v1.5.1 – fixed yfinance API compatibility (upgraded to 0.2.66), improved data loading
 
 # --- Settings / Defaults ---
 DEFAULT_STOCKS = ["^GSPC", "^DJI", "^IXIC", "SPY", "QQQ"]
@@ -167,10 +169,52 @@ def _to_ohlc(df: pd.DataFrame) -> pd.DataFrame:
 def _sma(series: pd.Series, window: int) -> pd.Series:
     return series.rolling(window=window, min_periods=1).mean()
 
+def _ema(series: pd.Series, window: int) -> pd.Series:
+    return series.ewm(span=window, adjust=False).mean()
+
 def _pct(a: float, b: float) -> float:
     if b == 0 or (b is None) or (a is None) or np.isnan(a) or np.isnan(b):
         return np.nan
     return (a / b - 1.0) * 100.0
+
+# --- Technical Indicators ---
+def _rsi(series: pd.Series, window: int = 14) -> pd.Series:
+    """Calculate Relative Strength Index."""
+    delta = series.diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=window).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=window).mean()
+    rs = gain / loss
+    rsi = 100 - (100 / (1 + rs))
+    return rsi
+
+def _macd(series: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9) -> tuple[pd.Series, pd.Series, pd.Series]:
+    """Calculate MACD (Moving Average Convergence Divergence).
+    Returns: (MACD line, Signal line, Histogram)"""
+    ema_fast = _ema(series, fast)
+    ema_slow = _ema(series, slow)
+    macd_line = ema_fast - ema_slow
+    signal_line = _ema(macd_line, signal)
+    histogram = macd_line - signal_line
+    return macd_line, signal_line, histogram
+
+def _bollinger_bands(series: pd.Series, window: int = 20, num_std: float = 2.0) -> tuple[pd.Series, pd.Series, pd.Series]:
+    """Calculate Bollinger Bands.
+    Returns: (Upper band, Middle band (SMA), Lower band)"""
+    middle = _sma(series, window)
+    std = series.rolling(window=window).std()
+    upper = middle + (std * num_std)
+    lower = middle - (std * num_std)
+    return upper, middle, lower
+
+def _volume_sma(volume: pd.Series, window: int = 20) -> pd.Series:
+    """Calculate volume moving average."""
+    return _sma(volume, window)
+
+def _vwap(df: pd.DataFrame, window: int = 20) -> pd.Series:
+    """Calculate Volume Weighted Average Price."""
+    typical_price = (df["high"] + df["low"] + df["close"]) / 3
+    vwap = (typical_price * df["volume"]).rolling(window=window).sum() / df["volume"].rolling(window=window).sum()
+    return vwap
 
 def _badge_color(trend: str) -> str:
     if trend == "Bullish":
@@ -183,20 +227,47 @@ def _badge_color(trend: str) -> str:
 @st.cache_data(show_spinner=False)
 def load_stock(ticker: str, start: date, end: date) -> pd.DataFrame:
     yf = _yf()
-    df = yf.download(
-        tickers=ticker,
-        start=start.isoformat(),
-        end=(end + timedelta(days=1)).isoformat(),
-        auto_adjust=True,
-        progress=False,
-        group_by="column",
-        threads=True,
-    )
-    if df is None or len(df) == 0:
-        return pd.DataFrame()
-    df = _ensure_datetime_index(df)
-    df = _to_ohlc(df)
-    return df
+    
+    # New yfinance (0.2.66+) uses curl_cffi and handles sessions automatically
+    # Try using Ticker API first (more reliable)
+    try:
+        stock = yf.Ticker(ticker)  # Don't pass session - let yfinance handle it
+        df = stock.history(start=start, end=(end + timedelta(days=1)), auto_adjust=True)
+        if df is not None and len(df) > 0:
+            df = _ensure_datetime_index(df)
+            df = _to_ohlc(df)
+            return df
+    except Exception as e:
+        import sys
+        print(f"Ticker API failed for {ticker}: {e}", file=sys.stderr)
+    
+    # Fallback to download API
+    max_retries = 2
+    for attempt in range(max_retries):
+        try:
+            df = yf.download(
+                tickers=ticker,
+                start=start.isoformat(),
+                end=(end + timedelta(days=1)).isoformat(),
+                auto_adjust=True,
+                progress=False,
+                group_by="column",
+                threads=False,
+            )
+            if df is not None and len(df) > 0:
+                df = _ensure_datetime_index(df)
+                df = _to_ohlc(df)
+                return df
+            if attempt < max_retries - 1:
+                time.sleep(1)
+        except Exception as e:
+            if attempt < max_retries - 1:
+                import sys
+                print(f"Download attempt {attempt + 1} failed for {ticker}: {e}", file=sys.stderr)
+                time.sleep(2)
+                continue
+    
+    return pd.DataFrame()
 
 def _cg_id_for(symbol_usd: str) -> str | None:
     # crude mapping for popular coins
@@ -264,7 +335,9 @@ def load_data(ticker: str, start: date, end: date, mode: str) -> pd.DataFrame:
     return load_crypto(ticker, start, end)
 
 # --- Chart builder ---
-def make_chart(df: pd.DataFrame, title: str, theme: str, pretouch_pct: float | None) -> go.Figure:
+def make_chart(df: pd.DataFrame, title: str, theme: str, pretouch_pct: float | None,
+               show_volume: bool = True, show_rsi: bool = True, show_macd: bool = True,
+               show_bollinger: bool = True) -> go.Figure:
     if df.empty:
         fig = go.Figure()
         fig.update_layout(template="plotly_dark" if theme == "Dark" else "plotly_white", title=title)
@@ -275,17 +348,63 @@ def make_chart(df: pd.DataFrame, title: str, theme: str, pretouch_pct: float | N
     df["SMA200"] = _sma(df["close"], SMA_LONG)
 
     template = "plotly_dark" if theme == "Dark" else "plotly_white"
-    fig = go.Figure()
+    
+    # Determine number of subplots needed
+    num_subplots = 1  # Main price chart
+    if show_volume:
+        num_subplots += 1
+    if show_rsi:
+        num_subplots += 1
+    if show_macd:
+        num_subplots += 1
+    
+    # Create subplots
+    from plotly.subplots import make_subplots
+    fig = make_subplots(
+        rows=num_subplots, cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.05,
+        row_heights=[0.5] + [0.5 / (num_subplots - 1)] * (num_subplots - 1) if num_subplots > 1 else [1.0],
+        subplot_titles=([title] + 
+                       (["Volume"] if show_volume else []) +
+                       (["RSI"] if show_rsi else []) +
+                       (["MACD"] if show_macd else []))
+    )
+    
+    row = 1
+    
+    # Main price chart
     fig.add_trace(go.Candlestick(
         x=df.index,
         open=df["open"], high=df["high"], low=df["low"], close=df["close"],
         name="Price"
-    ))
-    fig.add_trace(go.Scatter(x=df.index, y=df["SMA20"], mode="lines", name=f"SMA {SMA_SHORT}", line=dict(width=2)))
-    fig.add_trace(go.Scatter(x=df.index, y=df["SMA200"], mode="lines", name=f"SMA {SMA_LONG}", line=dict(width=2)))
+    ), row=row, col=1)
+    
+    fig.add_trace(go.Scatter(
+        x=df.index, y=df["SMA20"], mode="lines", name=f"SMA {SMA_SHORT}", 
+        line=dict(width=2, color="#4fa3ff")
+    ), row=row, col=1)
+    
+    fig.add_trace(go.Scatter(
+        x=df.index, y=df["SMA200"], mode="lines", name=f"SMA {SMA_LONG}", 
+        line=dict(width=2, color="#ff6b6b")
+    ), row=row, col=1)
+
+    # Bollinger Bands
+    if show_bollinger:
+        bb_upper, bb_middle, bb_lower = _bollinger_bands(df["close"], window=20, num_std=2.0)
+        fig.add_trace(go.Scatter(
+            x=df.index, y=bb_upper, mode="lines", name="BB Upper",
+            line=dict(width=1, color="#888", dash="dash"), showlegend=False
+        ), row=row, col=1)
+        fig.add_trace(go.Scatter(
+            x=df.index, y=bb_lower, mode="lines", name="BB Lower",
+            line=dict(width=1, color="#888", dash="dash"), fill="tonexty",
+            fillcolor="rgba(128,128,128,0.1)", showlegend=False
+        ), row=row, col=1)
 
     # Add cross markers (golden/death crosses)
-    add_cross_markers(fig, df, price_col="close", s20="SMA20", s200="SMA200")
+    add_cross_markers(fig, df, price_col="close", s20="SMA20", s200="SMA200", row=row, col=1)
 
     # Pretouch band (symmetric % around SMA200)
     if pretouch_pct and pretouch_pct > 0:
@@ -294,20 +413,78 @@ def make_chart(df: pd.DataFrame, title: str, theme: str, pretouch_pct: float | N
         lower = df["SMA200"] - band
         fig.add_trace(go.Scatter(
             x=df.index, y=upper, line=dict(width=0), showlegend=False, hoverinfo="skip"
-        ))
+        ), row=row, col=1)
         fig.add_trace(go.Scatter(
             x=df.index, y=lower, fill="tonexty", name=f"Pretouch ±{pretouch_pct:.2f}%",
             hoverinfo="skip", opacity=0.15
-        ))
+        ), row=row, col=1)
+
+    # Volume subplot
+    if show_volume and not df["volume"].isna().all():
+        row += 1
+        colors = ["#17c964" if df["close"].iloc[i] >= df["open"].iloc[i] else "#f31260" 
+                 for i in range(len(df))]
+        fig.add_trace(go.Bar(
+            x=df.index, y=df["volume"], name="Volume",
+            marker_color=colors, opacity=0.6
+        ), row=row, col=1)
+        
+        # Volume SMA
+        vol_sma = _volume_sma(df["volume"], window=20)
+        fig.add_trace(go.Scatter(
+            x=df.index, y=vol_sma, mode="lines", name="Vol SMA 20",
+            line=dict(width=1, color="#888")
+        ), row=row, col=1)
+        
+        fig.update_yaxes(title_text="Volume", row=row, col=1)
+
+    # RSI subplot
+    if show_rsi:
+        row += 1
+        rsi = _rsi(df["close"], window=14)
+        fig.add_trace(go.Scatter(
+            x=df.index, y=rsi, mode="lines", name="RSI",
+            line=dict(width=2, color="#9b59b6")
+        ), row=row, col=1)
+        
+        # RSI levels
+        fig.add_hline(y=70, line_dash="dash", line_color="red", opacity=0.5, row=row, col=1)
+        fig.add_hline(y=30, line_dash="dash", line_color="green", opacity=0.5, row=row, col=1)
+        fig.add_hline(y=50, line_dash="dot", line_color="gray", opacity=0.3, row=row, col=1)
+        
+        fig.update_yaxes(title_text="RSI", range=[0, 100], row=row, col=1)
+
+    # MACD subplot
+    if show_macd:
+        row += 1
+        macd_line, signal_line, histogram = _macd(df["close"])
+        fig.add_trace(go.Scatter(
+            x=df.index, y=macd_line, mode="lines", name="MACD",
+            line=dict(width=2, color="#3498db")
+        ), row=row, col=1)
+        fig.add_trace(go.Scatter(
+            x=df.index, y=signal_line, mode="lines", name="Signal",
+            line=dict(width=2, color="#e74c3c")
+        ), row=row, col=1)
+        
+        # Histogram
+        colors_hist = ["#17c964" if h >= 0 else "#f31260" for h in histogram]
+        fig.add_trace(go.Bar(
+            x=df.index, y=histogram, name="Histogram",
+            marker_color=colors_hist, opacity=0.6
+        ), row=row, col=1)
+        
+        fig.add_hline(y=0, line_dash="dot", line_color="gray", opacity=0.3, row=row, col=1)
+        fig.update_yaxes(title_text="MACD", row=row, col=1)
 
     fig.update_layout(
         template=template,
-        title=dict(text=title, y=0.98, yanchor="top"),
         xaxis_rangeslider_visible=False,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
         margin=dict(l=10, r=10, t=60, b=10),
-        height=540
+        height=400 + (200 * (num_subplots - 1))
     )
+    
     return fig
 
 # --- Screener helper ---
@@ -349,6 +526,51 @@ def build_screener(tickers: list[str], start: date, end: date, mode: str, pretou
                 touch = "🟡"  # Yellow circle when SMA20 is in the band
         row["Touch"] = touch
 
+        # Add RSI
+        rsi = _rsi(d["close"], window=14)
+        rsi_last_val = rsi.iloc[-1]
+        rsi_last = float(rsi_last_val) if not (pd.isna(rsi_last_val) or math.isnan(rsi_last_val)) else np.nan
+        row["RSI"] = rsi_last
+
+        # Add MACD
+        macd_line, signal_line, histogram = _macd(d["close"])
+        macd_last_val = macd_line.iloc[-1]
+        signal_last_val = signal_line.iloc[-1]
+        hist_last_val = histogram.iloc[-1]
+        macd_last = float(macd_last_val) if not (pd.isna(macd_last_val) or math.isnan(macd_last_val)) else np.nan
+        signal_last = float(signal_last_val) if not (pd.isna(signal_last_val) or math.isnan(signal_last_val)) else np.nan
+        hist_last = float(hist_last_val) if not (pd.isna(hist_last_val) or math.isnan(hist_last_val)) else np.nan
+        row["MACD"] = macd_last
+        row["MACD Signal"] = signal_last
+        row["MACD Hist"] = hist_last
+
+        # Add Volume metrics
+        if not d["volume"].isna().all():
+            vol_last = float(last["volume"])
+            vol_sma = _volume_sma(d["volume"], window=20)
+            vol_sma_last_val = vol_sma.iloc[-1]
+            vol_sma_last = float(vol_sma_last_val) if not (pd.isna(vol_sma_last_val) or math.isnan(vol_sma_last_val)) else np.nan
+            row["Volume"] = vol_last
+            row["Vol SMA20"] = vol_sma_last
+            row["Vol Ratio"] = vol_last / vol_sma_last if vol_sma_last > 0 and not math.isnan(vol_sma_last) else np.nan
+        else:
+            row["Volume"] = np.nan
+            row["Vol SMA20"] = np.nan
+            row["Vol Ratio"] = np.nan
+
+        # Add Bollinger Bands position
+        bb_upper, bb_middle, bb_lower = _bollinger_bands(d["close"], window=20, num_std=2.0)
+        bb_upper_last_val = bb_upper.iloc[-1]
+        bb_lower_last_val = bb_lower.iloc[-1]
+        bb_upper_last = float(bb_upper_last_val) if not (pd.isna(bb_upper_last_val) or math.isnan(bb_upper_last_val)) else np.nan
+        bb_lower_last = float(bb_lower_last_val) if not (pd.isna(bb_lower_last_val) or math.isnan(bb_lower_last_val)) else np.nan
+        if not math.isnan(bb_upper_last) and not math.isnan(bb_lower_last):
+            bb_width = bb_upper_last - bb_lower_last
+            bb_position = ((price - bb_lower_last) / bb_width * 100) if bb_width > 0 else np.nan
+            row["BB Position %"] = bb_position
+        else:
+            row["BB Position %"] = np.nan
+
         rows.append(row)
 
     df = pd.DataFrame(rows)
@@ -367,6 +589,14 @@ mode = st.sidebar.radio("Market", ["Stocks", "Crypto"], horizontal=True)
 theme = st.sidebar.radio("Chart Theme", ["Dark", "Light"], index=0, horizontal=True)
 pretouch = st.sidebar.slider("Pretouch band around SMA200 (%)", min_value=0.0, max_value=5.0, value=1.0, step=0.25)
 period_days = st.sidebar.select_slider("Lookback (days)", options=[180, 365, 540, 730], value=365)
+
+# Indicator toggles
+st.sidebar.markdown("---")
+st.sidebar.markdown("**Indicators**")
+show_volume = st.sidebar.checkbox("Show Volume", value=True)
+show_rsi = st.sidebar.checkbox("Show RSI", value=True)
+show_macd = st.sidebar.checkbox("Show MACD", value=True)
+show_bollinger = st.sidebar.checkbox("Show Bollinger Bands", value=True)
 
 # Date range
 end_d = date.today()
@@ -487,11 +717,13 @@ for t in selected:
     cols = st.columns([3, 1], gap="large")
     with cols[0]:
         st.markdown(f"**{t}**")
-        fig = make_chart(df, f"{t} — SMA {SMA_SHORT}/{SMA_LONG}", theme, pretouch)
+        fig = make_chart(df, f"{t} — SMA {SMA_SHORT}/{SMA_LONG}", theme, pretouch,
+                        show_volume=show_volume, show_rsi=show_rsi, 
+                        show_macd=show_macd, show_bollinger=show_bollinger)
         st.plotly_chart(fig, use_container_width=True, key=f"chart_{t}_{mode}")
     with cols[1]:
         if df.empty:
-            st.info("No data.")
+            st.warning(f"⚠️ No data available for {t}. This could be due to:\n- Yahoo Finance API issues\n- Network connectivity\n- Invalid ticker symbol\n\nTry refreshing the page or check your internet connection.")
         else:
             d = df.copy()
             d["SMA20"] = _sma(d["close"], SMA_SHORT)
@@ -504,6 +736,41 @@ for t in selected:
             st.metric(f"SMA {SMA_SHORT}", f"${sma20:,.2f}")
             st.metric(f"SMA {SMA_LONG}", f"${sma200:,.2f}")
             st.metric("20 vs 200", f"{_pct(sma20, sma200):+.2f}%")
+            
+            # RSI
+            if show_rsi:
+                rsi = _rsi(d["close"], window=14)
+                rsi_last_val = rsi.iloc[-1]
+                rsi_last = float(rsi_last_val) if not (pd.isna(rsi_last_val) or math.isnan(rsi_last_val)) else np.nan
+                if not math.isnan(rsi_last):
+                    rsi_color = "#f31260" if rsi_last > 70 else "#17c964" if rsi_last < 30 else "#888"
+                    st.metric("RSI (14)", f"{rsi_last:.1f}", delta=None)
+            
+            # MACD
+            if show_macd:
+                macd_line, signal_line, histogram = _macd(d["close"])
+                macd_last_val = macd_line.iloc[-1]
+                signal_last_val = signal_line.iloc[-1]
+                hist_last_val = histogram.iloc[-1]
+                macd_last = float(macd_last_val) if not (pd.isna(macd_last_val) or math.isnan(macd_last_val)) else np.nan
+                signal_last = float(signal_last_val) if not (pd.isna(signal_last_val) or math.isnan(signal_last_val)) else np.nan
+                hist_last = float(hist_last_val) if not (pd.isna(hist_last_val) or math.isnan(hist_last_val)) else np.nan
+                if not math.isnan(macd_last):
+                    st.metric("MACD", f"{macd_last:.2f}")
+                    st.metric("Signal", f"{signal_last:.2f}")
+                    st.metric("Histogram", f"{hist_last:.2f}")
+            
+            # Volume
+            if show_volume and not d["volume"].isna().all():
+                vol_last = float(last["volume"])
+                vol_sma = _volume_sma(d["volume"], window=20)
+                vol_sma_last_val = vol_sma.iloc[-1]
+                vol_sma_last = float(vol_sma_last_val) if not (pd.isna(vol_sma_last_val) or math.isnan(vol_sma_last_val)) else np.nan
+                if not math.isnan(vol_sma_last) and vol_sma_last > 0:
+                    vol_ratio = vol_last / vol_sma_last
+                    st.metric("Volume", f"{vol_last:,.0f}")
+                    st.metric("Vol SMA20", f"{vol_sma_last:,.0f}")
+                    st.metric("Vol Ratio", f"{vol_ratio:.2f}x")
 
 # --- Screener ---
 st.divider()
@@ -513,16 +780,41 @@ screener_df = build_screener(selected or universe, start_d, end_d, mode, pretouc
 if screener_df.empty:
     st.info("No data to screen.")
 else:
-    show_cols = ["Ticker", "Trend", "Touch", "Last", "SMA20", "SMA200", "Dist to SMA200 (%)", "Dist to SMA20 (%)"]
-    s = screener_df[show_cols].style.apply(
-        lambda col: [_badge_color(v) for v in col], subset=["Trend"]
-    ).format({
+    # Build column list based on available data
+    base_cols = ["Ticker", "Trend", "Touch", "Last", "SMA20", "SMA200", "Dist to SMA200 (%)", "Dist to SMA20 (%)"]
+    indicator_cols = []
+    if "RSI" in screener_df.columns:
+        indicator_cols.append("RSI")
+    if "MACD" in screener_df.columns:
+        indicator_cols.extend(["MACD", "MACD Signal", "MACD Hist"])
+    if "Vol Ratio" in screener_df.columns:
+        indicator_cols.extend(["Volume", "Vol Ratio"])
+    if "BB Position %" in screener_df.columns:
+        indicator_cols.append("BB Position %")
+    
+    show_cols = base_cols + indicator_cols
+    # Filter to only columns that exist
+    show_cols = [c for c in show_cols if c in screener_df.columns]
+    
+    format_dict = {
         "Last": "${:,.2f}",
         "SMA20": "${:,.2f}",
         "SMA200": "${:,.2f}",
         "Dist to SMA200 (%)": "{:+.2f}%",
-        "Dist to SMA20 (%)": "{:+.2f}%"
-    })
+        "Dist to SMA20 (%)": "{:+.2f}%",
+        "RSI": "{:.1f}",
+        "MACD": "{:.2f}",
+        "MACD Signal": "{:.2f}",
+        "MACD Hist": "{:.2f}",
+        "Volume": "{:,.0f}",
+        "Vol SMA20": "{:,.0f}",
+        "Vol Ratio": "{:.2f}x",
+        "BB Position %": "{:.1f}%"
+    }
+    
+    s = screener_df[show_cols].style.apply(
+        lambda col: [_badge_color(v) for v in col], subset=["Trend"]
+    ).format({k: v for k, v in format_dict.items() if k in show_cols})
     st.dataframe(s, use_container_width=True, hide_index=True)
     st.download_button(
         label="Download Screener CSV",

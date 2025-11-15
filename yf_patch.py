@@ -21,6 +21,28 @@ try:
     import yfinance.shared as yfs
     yfs._base._requests = sess
     yfs._requests = sess
+    # Also try to set it in the base module
+    if hasattr(yfs, '_base'):
+        if hasattr(yfs._base, '_requests'):
+            yfs._base._requests = sess
+except Exception:
+    pass
+
+# Additional patch: monkey-patch yfinance's download function to always use our session
+try:
+    import yfinance as yf_module
+    _original_download = yf_module.download
+    
+    def _patched_download(*args, **kwargs):
+        # Always inject our session if not provided
+        if 'session' not in kwargs:
+            kwargs['session'] = sess
+        # Disable threads by default to avoid session issues
+        if 'threads' not in kwargs:
+            kwargs['threads'] = False
+        return _original_download(*args, **kwargs)
+    
+    yf_module.download = _patched_download
 except Exception:
     pass
 
