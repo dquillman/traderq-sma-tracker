@@ -8,8 +8,13 @@ A Streamlit-based web application for tracking SMA (Simple Moving Average) cross
 - **Cross Detection**: Automatically detects Golden Cross (bullish) and Death Cross (bearish) signals
 - **Multi-Asset Support**: Works with stocks, indices, and cryptocurrencies
 - **Interactive Charts**: Beautiful Plotly charts with cross markers
+- **Volume Analysis**: Volume bars with volume moving averages and volume ratios
+- **RSI Indicator**: Relative Strength Index with overbought (70) and oversold (30) levels
+- **MACD Indicator**: Moving Average Convergence Divergence with signal line and histogram
+- **Bollinger Bands**: Price volatility bands with position tracking
 - **Custom Tickers**: Add and persist your own ticker symbols
 - **Trend Indicators**: Visual trend chips showing Bullish/Bearish status
+- **Toggle Controls**: Enable/disable indicators in the sidebar
 
 ## Installation
 
@@ -60,7 +65,7 @@ The app will open in your browser at `http://localhost:8501`
 
 ## Version
 
-Current version: v1.4.8
+Current version: v1.5.1
 
 ## License
 
