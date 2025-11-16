@@ -14,6 +14,9 @@ A Streamlit-based web application for tracking SMA (Simple Moving Average) cross
 - **Bollinger Bands**: Price volatility bands with position tracking
 - **EMA Indicator**: Exponential Moving Average with configurable period
 - **Supertrend Indicator**: Trend-following indicator with color-coded bullish/bearish signals
+- **Fair Value Gap (FVG) Indicator**: Identifies unfilled price gaps that often act as support/resistance
+- **AI Recommendations**: Customizable indicator selection for AI analysis (SMA, RSI, MACD, Supertrend, FVG, News)
+- **Trade Visualization**: Visual trade zones on charts showing risk (red) and reward (green) areas
 - **Custom Tickers**: Add and persist your own ticker symbols
 - **Trend Indicators**: Visual trend chips showing Bullish/Bearish status
 - **Toggle Controls**: Enable/disable indicators in the sidebar
@@ -67,7 +70,7 @@ The app will open in your browser at `http://localhost:8501`
 
 ## Version
 
-Current version: v2.3.0
+Current version: v2.4.0
 
 ## License
 

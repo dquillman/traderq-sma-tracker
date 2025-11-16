@@ -59,7 +59,8 @@ import streamlit as st
 import ui_glow_patch
 import yf_patch  # glow+session patch
 
-APP_VERSION = "v2.3.0"
+APP_VERSION = "v2.4.0"
+# v2.4.0 – Added Fair Value Gap indicator, indicator selection for AI Recommendations, trade parameter visualization (red risk/green reward zones)
 # v2.3.0 – Added Supertrend and EMA indicators, integrated Supertrend into AI Recommendations
 # v2.2.0 – AI Recommendations system with comprehensive analysis (SMA, RSI, News Sentiment)
 # v2.1.0 – risk management dashboard, signal generator, win rate analytics, position tracking, market regime detection
@@ -309,6 +310,68 @@ def save_trade_journal(journal: list):
             json.dump(journal, f, indent=2, default=str)
     except Exception:
         pass
+
+# --- Fair Value Gap Detection ---
+def find_fair_value_gaps(df: pd.DataFrame) -> list:
+    """
+    Detect Fair Value Gaps (FVG) in price action.
+    FVG is a 3-candle pattern where:
+    - Candle 1 and Candle 3 overlap
+    - Candle 2 creates a gap (doesn't overlap with Candle 1 or 3)
+    
+    Returns list of FVG dictionaries with start/end price and date range.
+    """
+    if df.empty or len(df) < 3:
+        return []
+    
+    if "high" not in df.columns or "low" not in df.columns:
+        return []
+    
+    fvgs = []
+    
+    for i in range(len(df) - 2):
+        c1_high = df["high"].iloc[i]
+        c1_low = df["low"].iloc[i]
+        c2_high = df["high"].iloc[i + 1]
+        c2_low = df["low"].iloc[i + 1]
+        c3_high = df["high"].iloc[i + 2]
+        c3_low = df["low"].iloc[i + 2]
+        
+        # Bullish FVG: Gap up (candle 2 is above candle 1, and candle 3 overlaps with candle 1)
+        # Conditions:
+        # 1. Candle 2 low > Candle 1 high (gap up from candle 1)
+        # 2. Candle 3 low <= Candle 1 high (candle 3 overlaps with candle 1)
+        # 3. Candle 3 high >= Candle 1 low (candle 3 overlaps with candle 1 from below)
+        # This creates an unfilled gap between c1_high and c2_low
+        if (c2_low > c1_high and c3_low <= c1_high and c3_high >= c1_low):
+            fvgs.append({
+                "type": "bullish",
+                "start_price": c1_high,  # Gap starts here
+                "end_price": c2_low,     # Gap ends here
+                "start_date": df.index[i],
+                "end_date": df.index[i + 2],
+                "gap_high": c2_low,      # Top of the gap (candle 2 low)
+                "gap_low": c1_high       # Bottom of the gap (candle 1 high)
+            })
+        
+        # Bearish FVG: Gap down (candle 2 is below candle 1, and candle 3 overlaps with candle 1)
+        # Conditions:
+        # 1. Candle 2 high < Candle 1 low (gap down from candle 1)
+        # 2. Candle 3 high >= Candle 1 low (candle 3 overlaps with candle 1)
+        # 3. Candle 3 low <= Candle 1 high (candle 3 overlaps with candle 1 from above)
+        # This creates an unfilled gap between c2_high and c1_low
+        elif (c2_high < c1_low and c3_high >= c1_low and c3_low <= c1_high):
+            fvgs.append({
+                "type": "bearish",
+                "start_price": c1_low,   # Gap starts here
+                "end_price": c2_high,    # Gap ends here
+                "start_date": df.index[i],
+                "end_date": df.index[i + 2],
+                "gap_high": c1_low,      # Top of the gap (candle 1 low)
+                "gap_low": c2_high       # Bottom of the gap (candle 2 high)
+            })
+    
+    return fvgs
 
 # --- Support & Resistance Detection ---
 def find_support_resistance(df: pd.DataFrame, window: int = 20, lookback: int = 5) -> dict:
@@ -570,7 +633,7 @@ def calculate_correlation(tickers: list[str], start: date, end: date, mode: str,
     
     prices = {}
     for ticker in tickers:
-        df = load_data(ticker, start, end, mode, interval=interval)
+        df = load_data(ticker, start, end, mode, interval=interval, data_source="Yahoo Finance")
         if not df.empty and "close" in df.columns:
             prices[ticker] = df["close"]
     
@@ -874,8 +937,10 @@ def fetch_news(ticker: str, max_items: int = 5) -> list:
         return []
 
 # --- AI Recommendation System ---
-def generate_ai_recommendation(ticker: str, df: pd.DataFrame, start: date, end: date, mode: str, interval: str) -> dict:
-    """Generate comprehensive AI trading recommendation based on SMA, RSI, Supertrend, and News Sentiment."""
+def generate_ai_recommendation(ticker: str, df: pd.DataFrame, start: date, end: date, mode: str, interval: str,
+                                use_sma: bool = True, use_rsi: bool = True, use_macd: bool = True,
+                                use_supertrend: bool = True, use_fvg: bool = True, use_news: bool = True) -> dict:
+    """Generate comprehensive AI trading recommendation based on selected indicators."""
     if df.empty or len(df) < 200:
         return {"error": "Insufficient data for analysis"}
     
@@ -895,16 +960,37 @@ def generate_ai_recommendation(ticker: str, df: pd.DataFrame, start: date, end: 
     rsi = _rsi(d["close"], window=14)
     rsi_val = float(rsi.iloc[-1]) if not pd.isna(rsi.iloc[-1]) else 50
     
+    # Calculate MACD
+    macd_line, signal_line, macd_hist = _macd(d["close"], fast=12, slow=26, signal=9)
+    macd_val = float(macd_line.iloc[-1]) if not pd.isna(macd_line.iloc[-1]) else 0
+    signal_val = float(signal_line.iloc[-1]) if not pd.isna(signal_line.iloc[-1]) else 0
+    macd_hist_val = float(macd_hist.iloc[-1]) if not pd.isna(macd_hist.iloc[-1]) else 0
+    macd_prev = float(macd_line.iloc[-2]) if len(macd_line) > 1 and not pd.isna(macd_line.iloc[-2]) else macd_val
+    signal_prev = float(signal_line.iloc[-2]) if len(signal_line) > 1 and not pd.isna(signal_line.iloc[-2]) else signal_val
+    
     # Calculate Supertrend
     supertrend, trend = _supertrend(d, period=10, multiplier=3.0)
     trend_current = float(trend.iloc[-1]) if not pd.isna(trend.iloc[-1]) else 0
     trend_prev = float(trend.iloc[-2]) if len(trend) > 1 and not pd.isna(trend.iloc[-2]) else trend_current
     supertrend_val = float(supertrend.iloc[-1]) if not pd.isna(supertrend.iloc[-1]) else current_price
     
-    # Analyze Supertrend
+    # Detect Fair Value Gaps
+    fvgs = find_fair_value_gaps(d)
+    # Get FVGs from last 10 candles
+    if len(d) >= 10:
+        recent_cutoff = d.index[-10]
+        recent_fvgs = [fvg for fvg in fvgs if fvg["end_date"] >= recent_cutoff]
+    else:
+        recent_fvgs = fvgs
+    
+    # Analyze Supertrend (only if enabled)
     supertrend_analysis = {}
     supertrend_score = 0
-    if trend_current > 0:
+    if not use_supertrend:
+        supertrend_analysis["status"] = "Disabled"
+        supertrend_analysis["description"] = "Supertrend analysis is disabled"
+        supertrend_score = 0
+    elif trend_current > 0:
         # Uptrend
         supertrend_analysis["status"] = "Bullish"
         supertrend_analysis["description"] = f"Supertrend indicates UPTREND - Price is above Supertrend line (${supertrend_val:.2f})"
@@ -929,10 +1015,14 @@ def generate_ai_recommendation(ticker: str, df: pd.DataFrame, start: date, end: 
         supertrend_analysis["description"] = f"Supertrend is neutral (${supertrend_val:.2f})"
         supertrend_score = 0
     
-    # Analyze SMA Cross
+    # Analyze SMA Cross (only if enabled)
     sma_analysis = {}
     sma_score = 0
-    if sma20_val > sma200_val:
+    if not use_sma:
+        sma_analysis["status"] = "Disabled"
+        sma_analysis["description"] = "SMA analysis is disabled"
+        sma_score = 0
+    elif sma20_val > sma200_val:
         sma_analysis["status"] = "Bullish"
         sma_analysis["description"] = f"SMA20 (${sma20_val:.2f}) is above SMA200 (${sma200_val:.2f})"
         sma_score = 2
@@ -953,10 +1043,14 @@ def generate_ai_recommendation(ticker: str, df: pd.DataFrame, start: date, end: 
         sma_analysis["description"] = "SMA20 and SMA200 are at similar levels"
         sma_score = 0
     
-    # Analyze RSI
+    # Analyze RSI (only if enabled)
     rsi_analysis = {}
     rsi_score = 0
-    if rsi_val < 30:
+    if not use_rsi:
+        rsi_analysis["status"] = "Disabled"
+        rsi_analysis["description"] = "RSI analysis is disabled"
+        rsi_score = 0
+    elif rsi_val < 30:
         rsi_analysis["status"] = "Oversold"
         rsi_analysis["description"] = f"RSI at {rsi_val:.1f} - Oversold condition, potential buying opportunity"
         rsi_score = 2
@@ -977,12 +1071,105 @@ def generate_ai_recommendation(ticker: str, df: pd.DataFrame, start: date, end: 
         rsi_analysis["description"] = f"RSI at {rsi_val:.1f} - Neutral"
         rsi_score = 0
     
-    # Fetch and analyze news sentiment
-    news_items = fetch_news(ticker, max_items=10)
+    # Analyze MACD (only if enabled)
+    macd_analysis = {}
+    macd_score = 0
+    if not use_macd:
+        macd_analysis["status"] = "Disabled"
+        macd_analysis["description"] = "MACD analysis is disabled"
+        macd_score = 0
+    else:
+        # Check for MACD crossovers
+        macd_above_signal = macd_val > signal_val
+        macd_above_signal_prev = macd_prev > signal_prev
+        macd_cross_up = not macd_above_signal_prev and macd_above_signal
+        macd_cross_dn = macd_above_signal_prev and not macd_above_signal
+        
+        if macd_cross_up:
+            macd_analysis["status"] = "Bullish Crossover"
+            macd_analysis["description"] = f"🟢 MACD BULLISH CROSSOVER! MACD ({macd_val:.4f}) just crossed above Signal ({signal_val:.4f}) - Strong buy signal"
+            macd_score = 3
+        elif macd_cross_dn:
+            macd_analysis["status"] = "Bearish Crossover"
+            macd_analysis["description"] = f"🔴 MACD BEARISH CROSSOVER! MACD ({macd_val:.4f}) just crossed below Signal ({signal_val:.4f}) - Strong sell signal"
+            macd_score = -3
+        elif macd_above_signal:
+            if macd_hist_val > 0:
+                macd_analysis["status"] = "Bullish"
+                macd_analysis["description"] = f"MACD ({macd_val:.4f}) above Signal ({signal_val:.4f}) with positive histogram - Bullish momentum"
+                macd_score = 2
+            else:
+                macd_analysis["status"] = "Bullish (Weakening)"
+                macd_analysis["description"] = f"MACD ({macd_val:.4f}) above Signal ({signal_val:.4f}) but histogram negative - Bullish momentum weakening"
+                macd_score = 1
+        else:
+            if macd_hist_val < 0:
+                macd_analysis["status"] = "Bearish"
+                macd_analysis["description"] = f"MACD ({macd_val:.4f}) below Signal ({signal_val:.4f}) with negative histogram - Bearish momentum"
+                macd_score = -2
+            else:
+                macd_analysis["status"] = "Bearish (Weakening)"
+                macd_analysis["description"] = f"MACD ({macd_val:.4f}) below Signal ({signal_val:.4f}) but histogram positive - Bearish momentum weakening"
+                macd_score = -1
+    
+    # Analyze Fair Value Gaps (only if enabled)
+    fvg_analysis = {}
+    fvg_score = 0
+    if not use_fvg:
+        fvg_analysis["status"] = "Disabled"
+        fvg_analysis["description"] = "Fair Value Gap analysis is disabled"
+        fvg_score = 0
+    else:
+        bullish_fvgs = [fvg for fvg in recent_fvgs if fvg["type"] == "bullish"]
+        bearish_fvgs = [fvg for fvg in recent_fvgs if fvg["type"] == "bearish"]
+        
+        # Check if price is near or in a FVG zone (potential support/resistance)
+        fvg_signals = []
+        for fvg in recent_fvgs[-3:]:  # Check last 3 FVGs
+            gap_high = fvg["gap_high"]
+            gap_low = fvg["gap_low"]
+            if gap_low <= current_price <= gap_high:
+                # Price is in the FVG zone
+                if fvg["type"] == "bullish":
+                    fvg_signals.append(f"Price is in BULLISH FVG zone (${gap_low:.2f}-${gap_high:.2f}) - Potential support")
+                    fvg_score += 1
+                else:
+                    fvg_signals.append(f"Price is in BEARISH FVG zone (${gap_low:.2f}-${gap_high:.2f}) - Potential resistance")
+                    fvg_score -= 1
+            elif current_price > gap_high and fvg["type"] == "bullish":
+                # Price broke above bullish FVG - bullish signal
+                fvg_signals.append(f"Price broke above BULLISH FVG (${gap_low:.2f}-${gap_high:.2f}) - Bullish continuation")
+                fvg_score += 1
+            elif current_price < gap_low and fvg["type"] == "bearish":
+                # Price broke below bearish FVG - bearish signal
+                fvg_signals.append(f"Price broke below BEARISH FVG (${gap_low:.2f}-${gap_high:.2f}) - Bearish continuation")
+                fvg_score -= 1
+        
+        if len(bullish_fvgs) > len(bearish_fvgs) and len(bullish_fvgs) > 0:
+            fvg_analysis["status"] = "Bullish FVG Pattern"
+            fvg_analysis["description"] = f"Recent bullish FVG activity ({len(bullish_fvgs)} bullish vs {len(bearish_fvgs)} bearish). " + "; ".join(fvg_signals) if fvg_signals else "No current FVG price action"
+            if not fvg_signals:
+                fvg_score = 1
+        elif len(bearish_fvgs) > len(bullish_fvgs) and len(bearish_fvgs) > 0:
+            fvg_analysis["status"] = "Bearish FVG Pattern"
+            fvg_analysis["description"] = f"Recent bearish FVG activity ({len(bearish_fvgs)} bearish vs {len(bullish_fvgs)} bullish). " + "; ".join(fvg_signals) if fvg_signals else "No current FVG price action"
+            if not fvg_signals:
+                fvg_score = -1
+        else:
+            fvg_analysis["status"] = "Neutral"
+            fvg_analysis["description"] = "; ".join(fvg_signals) if fvg_signals else f"No recent FVG activity ({len(recent_fvgs)} FVGs detected in last 10 candles)"
+            fvg_score = 0
+    
+    # Fetch and analyze news sentiment (only if enabled)
+    news_items = fetch_news(ticker, max_items=10) if use_news else []
     news_analysis = {}
     news_score = 0
     
-    if news_items:
+    if not use_news:
+        news_analysis["status"] = "Disabled"
+        news_analysis["description"] = "News sentiment analysis is disabled"
+        news_score = 0
+    elif news_items:
         bullish_count = sum(1 for item in news_items if item.get('sentiment', {}).get('sentiment') == 'BULLISH')
         bearish_count = sum(1 for item in news_items if item.get('sentiment', {}).get('sentiment') == 'BEARISH')
         neutral_count = len(news_items) - bullish_count - bearish_count
@@ -1012,7 +1199,7 @@ def generate_ai_recommendation(ticker: str, df: pd.DataFrame, start: date, end: 
         news_score = 0
     
     # Combine scores
-    total_score = sma_score + rsi_score + supertrend_score + news_score
+    total_score = sma_score + rsi_score + macd_score + supertrend_score + fvg_score + news_score
     
     # Determine recommendation
     if total_score >= 5:
@@ -1112,7 +1299,9 @@ def generate_ai_recommendation(ticker: str, df: pd.DataFrame, start: date, end: 
         "total_score": total_score,
         "sma_analysis": sma_analysis,
         "rsi_analysis": rsi_analysis,
+        "macd_analysis": macd_analysis,
         "supertrend_analysis": supertrend_analysis,
+        "fvg_analysis": fvg_analysis,
         "news_analysis": news_analysis,
         "entry_price": entry_price,
         "stop_loss": stop_loss,
@@ -1402,10 +1591,19 @@ def _cg():
     from pycoingecko import CoinGeckoAPI
     return CoinGeckoAPI()
 
+@lru_cache(maxsize=1)
+def _gf():
+    """Initialize Google Finance scraper."""
+    import requests
+    return requests
+
 # --- Utilities ---
 def _ensure_datetime_index(df: pd.DataFrame) -> pd.DataFrame:
     if not isinstance(df.index, pd.DatetimeIndex):
         df.index = pd.to_datetime(df.index, utc=False)
+    # Ensure timezone-naive index to avoid UTC offset issues
+    if isinstance(df.index, pd.DatetimeIndex) and df.index.tz is not None:
+        df.index = df.index.tz_localize(None)
     df = df.sort_index()
     return df
 
@@ -1754,7 +1952,7 @@ def calculate_portfolio_metrics(portfolio: dict, start: date, end: date, mode: s
     
     for ticker in tickers:
         weight = weights.get(ticker, 1.0/len(tickers)) / total_weight if total_weight > 0 else 1.0/len(tickers)
-        df = load_data(ticker, start, end, mode)
+        df = load_data(ticker, start, end, mode, data_source="Yahoo Finance")
         
         if df.empty:
             continue
@@ -1896,9 +2094,189 @@ def _badge_color(trend: str) -> str:
     return ""
 
 # --- Data loaders ---
+@st.cache_data(show_spinner=False, ttl=60)  # Cache for 60 seconds (will be cleared on manual refresh)
+def load_google_finance_stock(ticker: str, start: date, end: date, interval: str = "1d", 
+                              force_refresh: bool = False) -> pd.DataFrame:
+    """Load stock data from Google Finance - uses real-time data fetching."""
+    try:
+        import requests
+        from bs4 import BeautifulSoup
+        import re
+        
+        # Google Finance URL format
+        quote_url = f"https://www.google.com/finance/quote/{ticker}"
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Accept-Encoding': 'gzip, deflate',
+            'Connection': 'keep-alive',
+        }
+        
+        # Try to fetch real-time data from Google Finance
+        response = requests.get(quote_url, headers=headers, timeout=15)
+        
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # Try to extract current price (real-time data)
+            price_elem = soup.find('div', class_=re.compile('YMlKec|fxKbKc')) or \
+                        soup.find('div', jsname='vWLAgc') or \
+                        soup.find('div', class_='AHmHk') or \
+                        soup.find('div', {'data-last-price': True})
+            
+            current_price = None
+            if price_elem:
+                try:
+                    # Try to get price from text
+                    price_text = price_elem.text.strip()
+                    # Remove currency symbols and commas
+                    price_text = re.sub(r'[^\d.]', '', price_text)
+                    if price_text:
+                        current_price = float(price_text)
+                except (ValueError, AttributeError):
+                    # Try data attribute
+                    if price_elem.get('data-last-price'):
+                        current_price = float(price_elem.get('data-last-price'))
+            
+            # Try to get historical data from Google Finance chart data
+            # Google Finance uses a JSON endpoint for chart data
+            chart_data_pattern = re.search(r'var\s+chartData\s*=\s*(\[.*?\]);', response.text, re.DOTALL)
+            if not chart_data_pattern:
+                # Try alternative pattern
+                chart_data_pattern = re.search(r'chartData\s*:\s*(\[.*?\]),', response.text, re.DOTALL)
+            
+            if chart_data_pattern:
+                try:
+                    import json
+                    chart_data = json.loads(chart_data_pattern.group(1))
+                    if chart_data and len(chart_data) > 0:
+                        # Process chart data into DataFrame
+                        dates = []
+                        prices = []
+                        for item in chart_data:
+                            if isinstance(item, list) and len(item) >= 2:
+                                # Format: [timestamp, open, high, low, close, volume]
+                                ts = pd.to_datetime(item[0], unit='ms')
+                                # Ensure timezone-naive timestamp
+                                if ts.tz is not None:
+                                    ts = ts.tz_localize(None)
+                                dates.append(ts)
+                                if len(item) >= 5:
+                                    prices.append({
+                                        'open': item[1],
+                                        'high': item[2],
+                                        'low': item[3],
+                                        'close': item[4],
+                                        'volume': item[5] if len(item) > 5 else 0
+                                    })
+                        
+                        if dates and prices:
+                            df = pd.DataFrame(prices, index=dates)
+                            df = df.sort_index()
+                            # Ensure timezone-naive index
+                            if df.index.tz is not None:
+                                df.index = df.index.tz_localize(None)
+                            df = df.loc[(df.index.date >= start) & (df.index.date <= end)]
+                            if len(df) > 0:
+                                df = _ensure_datetime_index(df)
+                                df = _to_ohlc(df)
+                                # Add current real-time price if available
+                                if current_price and len(df) > 0:
+                                    last_date = df.index[-1]
+                                    today = date.today()
+                                    if last_date.date() < today:
+                                        # Add today's price with timezone-naive timestamp
+                                        new_row = pd.DataFrame({
+                                            'open': [current_price],
+                                            'high': [current_price],
+                                            'low': [current_price],
+                                            'close': [current_price],
+                                            'volume': [0]
+                                        }, index=[pd.Timestamp(today)])
+                                        df = pd.concat([df, new_row])
+                                return df
+                except (json.JSONDecodeError, ValueError, KeyError) as e:
+                    import sys
+                    print(f"Failed to parse Google Finance chart data: {e}", file=sys.stderr)
+        
+        # Fallback: Use pandas_datareader if available (Google Finance support)
+        try:
+            import pandas_datareader.data as web
+            df = web.DataReader(ticker, 'google', start, end)
+            if df is not None and len(df) > 0:
+                df = _ensure_datetime_index(df)
+                df = _to_ohlc(df)
+                return df
+        except (ImportError, Exception):
+            pass
+        
+        # Final fallback: Use yfinance (which gets data from Yahoo Finance)
+        # This ensures we always have data, even if Google Finance scraping fails
+        yf = _yf()
+        try:
+            # For intraday intervals, limit to last 60 days
+            if interval in ["1m", "2m", "5m", "15m", "30m", "60m", "90m"]:
+                max_start = date.today() - timedelta(days=60)
+                if start < max_start:
+                    start = max_start
+            
+            stock = yf.Ticker(ticker)
+            df = stock.history(start=start, end=(end + timedelta(days=1)), interval=interval, auto_adjust=True)
+            if df is not None and len(df) > 0:
+                df = _ensure_datetime_index(df)
+                df = _to_ohlc(df)
+                # For 5-minute interval, limit to last 500 candles if we have more
+                if interval == "5m" and len(df) > 500:
+                    df = df.tail(500)
+                # Ensure timezone-naive index before adding real-time price
+                if df.index.tz is not None:
+                    df.index = df.index.tz_localize(None)
+                # Try to update with real-time price if we got it
+                if current_price and len(df) > 0:
+                    last_date = df.index[-1]
+                    today = date.today()
+                    if last_date.date() < today:
+                        new_row = pd.DataFrame({
+                            'open': [current_price],
+                            'high': [current_price],
+                            'low': [current_price],
+                            'close': [current_price],
+                            'volume': [0]
+                        }, index=[pd.Timestamp(today)])
+                        df = pd.concat([df, new_row])
+                return df
+        except Exception:
+            pass
+        
+        return pd.DataFrame()
+    except Exception as e:
+        import sys
+        print(f"Google Finance load failed for {ticker}: {e}", file=sys.stderr)
+        # Final fallback to yfinance
+        try:
+            yf = _yf()
+            stock = yf.Ticker(ticker)
+            df = stock.history(start=start, end=(end + timedelta(days=1)), interval=interval, auto_adjust=True)
+            if df is not None and len(df) > 0:
+                df = _ensure_datetime_index(df)
+                df = _to_ohlc(df)
+                return df
+        except Exception:
+            pass
+        return pd.DataFrame()
+
 @st.cache_data(show_spinner=False)
 def load_stock(ticker: str, start: date, end: date, interval: str = "1d") -> pd.DataFrame:
     yf = _yf()
+    
+    # For intraday intervals (5m, 15m, etc.), we need to adjust the period
+    # yfinance intraday data is typically available for last 60 days max
+    if interval in ["1m", "2m", "5m", "15m", "30m", "60m", "90m"]:
+        # Limit to last 60 days for intraday data
+        max_start = date.today() - timedelta(days=60)
+        if start < max_start:
+            start = max_start
     
     # New yfinance (0.2.66+) uses curl_cffi and handles sessions automatically
     # Try using Ticker API first (more reliable)
@@ -1908,6 +2286,9 @@ def load_stock(ticker: str, start: date, end: date, interval: str = "1d") -> pd.
         if df is not None and len(df) > 0:
             df = _ensure_datetime_index(df)
             df = _to_ohlc(df)
+            # For 5-minute interval, limit to last 500 candles if we have more
+            if interval == "5m" and len(df) > 500:
+                df = df.tail(500)
             return df
     except Exception as e:
         import sys
@@ -1930,6 +2311,9 @@ def load_stock(ticker: str, start: date, end: date, interval: str = "1d") -> pd.
             if df is not None and len(df) > 0:
                 df = _ensure_datetime_index(df)
                 df = _to_ohlc(df)
+                # For 5-minute interval, limit to last 500 candles if we have more
+                if interval == "5m" and len(df) > 500:
+                    df = df.tail(500)
                 return df
             if attempt < max_retries - 1:
                 time.sleep(1)
@@ -2002,11 +2386,19 @@ def load_crypto(ticker: str, start: date, end: date) -> pd.DataFrame:
         return pd.DataFrame()
 
 @st.cache_data(show_spinner=False)
-def load_data(ticker: str, start: date, end: date, mode: str, interval: str = "1d") -> pd.DataFrame:
+def load_data(ticker: str, start: date, end: date, mode: str, interval: str = "1d", data_source: str = "Yahoo Finance") -> pd.DataFrame:
+    """Load data from specified data source."""
     if mode == "Stocks":
-        return load_stock(ticker, start, end, interval=interval)
+        if data_source == "Google Finance":
+            return load_google_finance_stock(ticker, start, end, interval=interval)
+        else:
+            return load_stock(ticker, start, end, interval=interval)
     # Crypto doesn't support intervals in the same way, but we can resample if needed
-    df = load_crypto(ticker, start, end)
+    # Google Finance for crypto uses same approach as stocks
+    if data_source == "Google Finance":
+        df = load_google_finance_stock(ticker, start, end, interval=interval)
+    else:
+        df = load_crypto(ticker, start, end)
     if not df.empty and interval != "1d":
         # Resample crypto data to weekly/monthly
         if interval == "1wk":
@@ -2026,7 +2418,19 @@ def make_chart(df: pd.DataFrame, title: str, theme: str, pretouch_pct: float | N
                show_volume: bool = True, show_rsi: bool = True, show_macd: bool = True,
                show_bollinger: bool = True, show_sma20: bool = True, show_sma200: bool = True,
                show_ema: bool = False, show_supertrend: bool = False,
-               show_support_resistance: bool = False) -> go.Figure:
+               show_support_resistance: bool = False, show_fvg: bool = False,
+               trade_entry: float | None = None, trade_stop_loss: float | None = None,
+               trade_target: float | None = None, trade_direction: str | None = None) -> go.Figure:
+    # Ensure timezone-naive index to avoid UTC offset issues in slicing operations
+    if not df.empty:
+        df = df.copy()  # Work with a copy to avoid modifying the original
+        if isinstance(df.index, pd.DatetimeIndex) and df.index.tz is not None:
+            df.index = df.index.tz_localize(None)
+        # Also ensure all datetime columns are timezone-naive
+        for col in ['open', 'high', 'low', 'close']:
+            if col in df.columns and hasattr(df[col].dtype, 'tz') and df[col].dtype.tz is not None:
+                df[col] = df[col].dt.tz_localize(None)
+    
     if df.empty:
         fig = go.Figure()
         fig.update_layout(
@@ -2043,6 +2447,10 @@ def make_chart(df: pd.DataFrame, title: str, theme: str, pretouch_pct: float | N
         return fig
 
     df = df.copy()
+    # Re-check and ensure timezone-naive index after copy
+    if isinstance(df.index, pd.DatetimeIndex) and df.index.tz is not None:
+        df.index = df.index.tz_localize(None)
+    
     df["SMA20"] = _sma(df["close"], SMA_SHORT)
     df["SMA200"] = _sma(df["close"], SMA_LONG)
     
@@ -2093,6 +2501,10 @@ def make_chart(df: pd.DataFrame, title: str, theme: str, pretouch_pct: float | N
     # Add filled area between SMAs with dynamic color based on which is on top
     # This must be added BEFORE the candlestick so it appears behind
     if show_sma20 and show_sma200:
+        # Ensure indices are timezone-naive for slicing
+        if isinstance(df.index, pd.DatetimeIndex) and df.index.tz is not None:
+            df.index = df.index.tz_localize(None)
+        
         # Create segments where SMA20 is above vs SMA200 is above
         sma20_above = df["SMA20"] > df["SMA200"]
         
@@ -2103,11 +2515,55 @@ def make_chart(df: pd.DataFrame, title: str, theme: str, pretouch_pct: float | N
         # Add start and end to transition list
         all_points = [df.index[0]] + transition_indices + [df.index[-1]]
         
+        # Ensure all indices are timezone-naive - convert each to timezone-naive timestamp
+        for i, idx in enumerate(all_points):
+            if isinstance(idx, pd.Timestamp):
+                if idx.tz is not None:
+                    all_points[i] = idx.tz_localize(None)
+            elif hasattr(idx, 'tz') and idx.tz is not None:
+                all_points[i] = pd.Timestamp(idx).tz_localize(None)
+        
         # Create segments
         for i in range(len(all_points) - 1):
             start_idx = all_points[i]
             end_idx = all_points[i + 1]
-            segment_df = df.loc[start_idx:end_idx]
+            
+            # Convert to timezone-naive if needed
+            if isinstance(start_idx, pd.Timestamp) and start_idx.tz is not None:
+                start_idx = start_idx.tz_localize(None)
+            if isinstance(end_idx, pd.Timestamp) and end_idx.tz is not None:
+                end_idx = end_idx.tz_localize(None)
+            
+            # Use boolean indexing to avoid timezone issues
+            try:
+                # Use boolean mask for more robust slicing
+                start_mask = df.index >= start_idx
+                end_mask = df.index <= end_idx
+                segment_mask = start_mask & end_mask
+                
+                if segment_mask.any():
+                    segment_df = df.loc[segment_mask]
+                else:
+                    # Fallback: use searchsorted to find positions
+                    try:
+                        start_pos = df.index.searchsorted(start_idx, side='left')
+                        end_pos = df.index.searchsorted(end_idx, side='right')
+                        if start_pos < len(df) and end_pos <= len(df) and start_pos < end_pos:
+                            segment_df = df.iloc[start_pos:end_pos]
+                        else:
+                            continue  # Skip this segment if indices are invalid
+                    except (ValueError, TypeError):
+                        continue  # Skip this segment
+            except (KeyError, TypeError, ValueError, IndexError) as e:
+                # Fallback: use boolean mask
+                try:
+                    mask = (df.index >= start_idx) & (df.index <= end_idx)
+                    if mask.any():
+                        segment_df = df.loc[mask]
+                    else:
+                        continue  # Skip this segment if no matching data
+                except Exception:
+                    continue  # Skip this segment entirely if we can't slice it
             
             if len(segment_df) < 2:
                 continue
@@ -2192,6 +2648,10 @@ def make_chart(df: pd.DataFrame, title: str, theme: str, pretouch_pct: float | N
     
     # Add Supertrend if enabled
     if show_supertrend:
+        # Ensure timezone-naive index for slicing operations
+        if isinstance(df.index, pd.DatetimeIndex) and df.index.tz is not None:
+            df.index = df.index.tz_localize(None)
+        
         supertrend, trend = _supertrend(df, period=10, multiplier=3.0)
         # Create continuous segments for each trend period
         uptrend_color = "#28a745" if theme == "Light" else "#00ff88"
@@ -2264,6 +2724,64 @@ def make_chart(df: pd.DataFrame, title: str, theme: str, pretouch_pct: float | N
             fillcolor="rgba(128,128,128,0.1)", showlegend=False
         ), row=row, col=1)
 
+    # Add Fair Value Gaps (FVG)
+    if show_fvg:
+        fvgs = find_fair_value_gaps(df)
+        for fvg in fvgs:
+            # Create a rectangular area for the FVG
+            gap_high = fvg["gap_high"]
+            gap_low = fvg["gap_low"]
+            start_date = fvg["start_date"]
+            end_date = fvg["end_date"]
+            
+            # Choose colors based on FVG type and theme
+            if fvg["type"] == "bullish":
+                # Bullish FVG: green/cyan tint
+                if theme == "Light":
+                    fill_color = "rgba(40, 167, 69, 0.2)"
+                    line_color = "rgba(40, 167, 69, 0.6)"
+                else:
+                    fill_color = "rgba(0, 255, 136, 0.25)"
+                    line_color = "rgba(0, 255, 136, 0.7)"
+            else:
+                # Bearish FVG: red/pink tint
+                if theme == "Light":
+                    fill_color = "rgba(220, 53, 69, 0.2)"
+                    line_color = "rgba(220, 53, 69, 0.6)"
+                else:
+                    fill_color = "rgba(255, 68, 68, 0.25)"
+                    line_color = "rgba(255, 68, 68, 0.7)"
+            
+            # Draw the FVG as a rectangle (filled area between gap_high and gap_low)
+            # Extend slightly beyond the start/end dates for visibility
+            fig.add_shape(
+                type="rect",
+                x0=start_date,
+                y0=gap_low,
+                x1=end_date,
+                y1=gap_high,
+                fillcolor=fill_color,
+                line=dict(color=line_color, width=1, dash="dot"),
+                layer="below",
+                row=row, col=1
+            )
+            
+            # Add text annotation for FVG type
+            mid_date = start_date + (end_date - start_date) / 2 if isinstance(end_date, pd.Timestamp) and isinstance(start_date, pd.Timestamp) else start_date
+            mid_price = (gap_high + gap_low) / 2
+            fig.add_annotation(
+                x=mid_date,
+                y=mid_price,
+                text=f"FVG ({fvg['type']})",
+                showarrow=False,
+                font=dict(size=9, color=line_color),
+                bgcolor=fill_color,
+                bordercolor=line_color,
+                borderwidth=1,
+                opacity=0.8,
+                row=row, col=1
+            )
+
     # Add support and resistance levels
     if show_support_resistance:
         sr_levels = find_support_resistance(df)
@@ -2286,6 +2804,134 @@ def make_chart(df: pd.DataFrame, title: str, theme: str, pretouch_pct: float | N
                 row=row, col=1
             )
     
+    # Add trade parameters rectangle (entry, stop loss, target)
+    if trade_entry is not None and trade_stop_loss is not None and trade_target is not None and trade_direction:
+        # Draw rectangle covering the trade zone from start to end of chart
+        start_date = df.index[0] if not df.empty else None
+        end_date = df.index[-1] if not df.empty else None
+        
+        if start_date and end_date:
+            if trade_direction == "LONG":
+                # For LONG: 
+                # - Red rectangle from stop_loss (below) to entry (risk zone)
+                # - Green rectangle from entry to target (reward zone)
+                risk_fill_color = "rgba(243, 18, 96, 0.2)" if theme == "Dark" else "rgba(220, 53, 69, 0.15)"
+                risk_line_color = "#f31260" if theme == "Dark" else "#dc3545"
+                reward_fill_color = "rgba(0, 255, 136, 0.2)" if theme == "Dark" else "rgba(40, 167, 69, 0.15)"
+                reward_line_color = "#00ff88" if theme == "Dark" else "#28a745"
+                
+                # Draw red rectangle (risk zone: stop_loss to entry)
+                fig.add_shape(
+                    type="rect",
+                    x0=start_date,
+                    y0=trade_stop_loss,
+                    x1=end_date,
+                    y1=trade_entry,
+                    fillcolor=risk_fill_color,
+                    line=dict(color=risk_line_color, width=1, dash="dot"),
+                    layer="below",
+                    row=row, col=1
+                )
+                
+                # Draw green rectangle (reward zone: entry to target)
+                fig.add_shape(
+                    type="rect",
+                    x0=start_date,
+                    y0=trade_entry,
+                    x1=end_date,
+                    y1=trade_target,
+                    fillcolor=reward_fill_color,
+                    line=dict(color=reward_line_color, width=1, dash="dot"),
+                    layer="below",
+                    row=row, col=1
+                )
+                
+            elif trade_direction == "SHORT":
+                # For SHORT:
+                # - Red rectangle from entry to stop_loss (above) (risk zone)
+                # - Green rectangle from target (below) to entry (reward zone)
+                risk_fill_color = "rgba(243, 18, 96, 0.2)" if theme == "Dark" else "rgba(220, 53, 69, 0.15)"
+                risk_line_color = "#f31260" if theme == "Dark" else "#dc3545"
+                reward_fill_color = "rgba(0, 255, 136, 0.2)" if theme == "Dark" else "rgba(40, 167, 69, 0.15)"
+                reward_line_color = "#00ff88" if theme == "Dark" else "#28a745"
+                
+                # Draw red rectangle (risk zone: entry to stop_loss)
+                fig.add_shape(
+                    type="rect",
+                    x0=start_date,
+                    y0=trade_entry,
+                    x1=end_date,
+                    y1=trade_stop_loss,
+                    fillcolor=risk_fill_color,
+                    line=dict(color=risk_line_color, width=1, dash="dot"),
+                    layer="below",
+                    row=row, col=1
+                )
+                
+                # Draw green rectangle (reward zone: target to entry)
+                fig.add_shape(
+                    type="rect",
+                    x0=start_date,
+                    y0=trade_target,
+                    x1=end_date,
+                    y1=trade_entry,
+                    fillcolor=reward_fill_color,
+                    line=dict(color=reward_line_color, width=1, dash="dot"),
+                    layer="below",
+                    row=row, col=1
+                )
+            else:
+                # HOLD/NEUTRAL - single gray rectangle
+                rect_low = min(trade_stop_loss, trade_entry, trade_target)
+                rect_high = max(trade_stop_loss, trade_entry, trade_target)
+                fill_color = "rgba(176, 176, 176, 0.15)" if theme == "Dark" else "rgba(128, 128, 128, 0.1)"
+                line_color = "#b0b0b0" if theme == "Dark" else "#888888"
+                
+                fig.add_shape(
+                    type="rect",
+                    x0=start_date,
+                    y0=rect_low,
+                    x1=end_date,
+                    y1=rect_high,
+                    fillcolor=fill_color,
+                    line=dict(color=line_color, width=2, dash="dash"),
+                    layer="below",
+                    row=row, col=1
+                )
+            
+            # Add horizontal lines for entry, stop loss, and target
+            entry_line_color = "#00ff88" if theme == "Dark" else "#28a745" if trade_direction == "LONG" else "#f31260" if trade_direction == "SHORT" else "#b0b0b0"
+            fig.add_hline(
+                y=trade_entry,
+                line_dash="solid",
+                line_color=entry_line_color,
+                line_width=2,
+                opacity=0.8,
+                annotation_text=f"Entry: ${trade_entry:.2f}",
+                annotation_position="right",
+                row=row, col=1
+            )
+            fig.add_hline(
+                y=trade_stop_loss,
+                line_dash="dot",
+                line_color="#ff4444" if theme == "Dark" else "#dc3545",
+                line_width=1.5,
+                opacity=0.7,
+                annotation_text=f"Stop Loss: ${trade_stop_loss:.2f}",
+                annotation_position="right",
+                row=row, col=1
+            )
+            fig.add_hline(
+                y=trade_target,
+                line_dash="dot",
+                line_color="#00ff88" if theme == "Dark" else "#28a745",
+                line_width=1.5,
+                opacity=0.7,
+                annotation_text=f"Target: ${trade_target:.2f}",
+                annotation_position="right",
+                row=row, col=1
+            )
+
     # Add cross markers (golden/death crosses)
     add_cross_markers(fig, df, price_col="close", s20="SMA20", s200="SMA200", row=row, col=1)
 
@@ -2411,7 +3057,7 @@ def make_chart(df: pd.DataFrame, title: str, theme: str, pretouch_pct: float | N
 def build_screener(tickers: list[str], start: date, end: date, mode: str, pretouch_pct: float | None, interval: str = "1d") -> pd.DataFrame:
     rows = []
     for t in tickers:
-        d = load_data(t, start, end, mode, interval=interval)
+        d = load_data(t, start, end, mode, interval=interval, data_source="Yahoo Finance")
         if d.empty or d["close"].isna().all():
             continue
         d = d.copy()
@@ -2775,7 +3421,118 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs([
 
 # Sidebar controls with professional styling
 st.sidebar.markdown("### ⚙️ Configuration")
-mode = st.sidebar.radio("Market", ["Stocks", "Crypto"], horizontal=True)
+
+# Initialize and restore mode from session state
+if "saved_mode" not in st.session_state:
+    st.session_state["saved_mode"] = "Stocks"
+mode = st.sidebar.radio("Market", ["Stocks", "Crypto"], 
+                       index=0 if st.session_state["saved_mode"] == "Stocks" else 1,
+                       horizontal=True, key="mode_radio")
+st.session_state["saved_mode"] = mode
+
+# Initialize and restore data_source from session state
+if "saved_data_source" not in st.session_state:
+    st.session_state["saved_data_source"] = "Yahoo Finance"
+data_source_options = ["Yahoo Finance", "Google Finance"]
+default_ds_index = 0 if st.session_state["saved_data_source"] == "Yahoo Finance" else 1
+data_source = st.sidebar.selectbox("Data Source", data_source_options, 
+                                   index=default_ds_index,
+                                   help="Select data source. Google Finance provides real-time data.",
+                                   key="data_source_select")
+st.session_state["saved_data_source"] = data_source
+
+# Auto-refresh option for Google Finance
+auto_refresh_enabled = False
+# Initialize refresh interval in session state
+if 'refresh_interval_minutes' not in st.session_state:
+    st.session_state['refresh_interval_minutes'] = 5
+
+if data_source == "Google Finance":
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### 🔄 Auto-Refresh")
+    
+    # Refresh interval setting
+    refresh_interval_minutes = st.sidebar.number_input(
+        "Refresh Interval (minutes)",
+        min_value=1,
+        max_value=60,
+        value=st.session_state.get('refresh_interval_minutes', 5),
+        step=1,
+        help="Set how often to automatically refresh data",
+        key='refresh_interval_input'
+    )
+    st.session_state['refresh_interval_minutes'] = refresh_interval_minutes
+    refresh_interval = refresh_interval_minutes * 60  # Convert to seconds
+    
+    auto_refresh_enabled = st.sidebar.checkbox(
+        f"🔄 Enable auto-refresh ({refresh_interval_minutes} min)", 
+        value=st.session_state.get('auto_refresh_enabled', False),
+        help=f"Automatically refresh data every {refresh_interval_minutes} minutes when enabled",
+        key='auto_refresh_checkbox'
+    )
+    st.session_state['auto_refresh_enabled'] = auto_refresh_enabled
+    
+    # Manual refresh button
+    if st.sidebar.button("🔄 Refresh Now", use_container_width=True):
+        # Clear cache for Google Finance data
+        load_google_finance_stock.clear()
+        load_data.clear()
+        # Update last refresh time
+        st.session_state['last_refresh_time'] = time.time()
+        st.rerun()
+else:
+    # Default refresh interval when not using Google Finance
+    refresh_interval = 300  # 5 minutes in seconds
+    
+    # Initialize last refresh time if not set
+    if 'last_refresh_time' not in st.session_state:
+        st.session_state['last_refresh_time'] = time.time()
+    
+    # Auto-refresh logic
+    if auto_refresh_enabled:
+        current_time = time.time()
+        time_since_refresh = current_time - st.session_state.get('last_refresh_time', 0)
+        
+        if time_since_refresh >= refresh_interval:
+            # Time to refresh - only clear cache and reload data, preserve all settings
+            load_google_finance_stock.clear()
+            load_data.clear()
+            st.session_state['last_refresh_time'] = current_time
+            # Use st.rerun() which preserves session state
+            st.rerun()
+        
+        # Show countdown timer (updates via page reloads every 10 seconds)
+        remaining_seconds = max(0, int(refresh_interval - time_since_refresh))
+        remaining_minutes = remaining_seconds // 60
+        remaining_secs = remaining_seconds % 60
+        
+        # Display countdown in sidebar with progress bar
+        progress_value = max(0.0, min(1.0, remaining_seconds / refresh_interval)) if refresh_interval > 0 else 0.0
+        countdown_text = f"⏱️ Next refresh in: **{remaining_minutes}:{remaining_secs:02d}**"
+        st.sidebar.markdown(countdown_text)
+        
+        # Progress bar - display with time remaining
+        progress_bar = st.sidebar.progress(progress_value)
+        # Add text label using HTML for better visibility
+        st.sidebar.markdown(
+            f'<div style="text-align: center; color: #00d4ff; font-size: 0.75rem; margin-top: -0.5rem; margin-bottom: 0.5rem;">'
+            f'{remaining_minutes}:{remaining_secs:02d} remaining</div>',
+            unsafe_allow_html=True
+        )
+        st.sidebar.caption("(Auto-updates every 10 seconds)")
+        
+        # Use meta refresh for automatic page reload every 10 seconds
+        # This updates the countdown display and eventually triggers data refresh
+        # Meta refresh preserves session state automatically
+        update_interval = 10  # Reload page every 10 seconds to update countdown
+        if remaining_seconds > update_interval:
+            # Meta refresh tag - works at browser level
+            meta_refresh = f'<meta http-equiv="refresh" content="{update_interval}">'
+            st.markdown(meta_refresh, unsafe_allow_html=True)
+        else:
+            # Less than 10 seconds remaining, reload when time is up
+            meta_refresh = f'<meta http-equiv="refresh" content="{remaining_seconds}">'
+            st.markdown(meta_refresh, unsafe_allow_html=True)
 
 # Ticker selection with persistent custom tickers (moved to sidebar)
 universe = DEFAULT_STOCKS if mode == "Stocks" else DEFAULT_CRYPTOS
@@ -2842,9 +3599,23 @@ if st.sidebar.button("Add", key=f"add_btn_{mode}"):
             })
             st.rerun()
 
-theme = st.sidebar.radio("Chart Theme", ["Dark", "Light"], index=0, horizontal=True)
-timeframe = st.sidebar.selectbox("Timeframe", ["Daily", "Weekly", "Monthly"], index=0)
-interval_map = {"Daily": "1d", "Weekly": "1wk", "Monthly": "1mo"}
+# Initialize and restore theme from session state
+if "saved_theme" not in st.session_state:
+    st.session_state["saved_theme"] = "Dark"
+theme_index = 0 if st.session_state["saved_theme"] == "Dark" else 1
+theme = st.sidebar.radio("Chart Theme", ["Dark", "Light"], 
+                        index=theme_index, horizontal=True, key="theme_radio")
+st.session_state["saved_theme"] = theme
+
+# Initialize and restore timeframe from session state
+if "saved_timeframe" not in st.session_state:
+    st.session_state["saved_timeframe"] = "Daily"
+timeframe_options = ["5 Minutes", "Daily", "Weekly", "Monthly"]
+default_timeframe_index = timeframe_options.index(st.session_state["saved_timeframe"]) if st.session_state["saved_timeframe"] in timeframe_options else 1
+timeframe = st.sidebar.selectbox("Timeframe", timeframe_options, 
+                                 index=default_timeframe_index, key="timeframe_select")
+st.session_state["saved_timeframe"] = timeframe
+interval_map = {"5 Minutes": "5m", "Daily": "1d", "Weekly": "1wk", "Monthly": "1mo"}
 interval = interval_map[timeframe]
 pretouch = st.sidebar.slider("Pretouch band around SMA200 (%)", min_value=0.0, max_value=5.0, value=1.0, step=0.25)
 period_days = st.sidebar.select_slider("Lookback (days)", options=[180, 365, 540, 730], value=365)
@@ -2855,16 +3626,30 @@ st.sidebar.markdown("### 📊 Indicators")
 show_sma20 = st.sidebar.checkbox("Show SMA 20", value=True)
 show_sma200 = st.sidebar.checkbox("Show SMA 200", value=True)
 show_ema = st.sidebar.checkbox("Show EMA", value=False)
-show_volume = st.sidebar.checkbox("Show Volume", value=True)
+show_volume = st.sidebar.checkbox("Show Volume", value=False)
 show_rsi = st.sidebar.checkbox("Show RSI", value=True)
 show_macd = st.sidebar.checkbox("Show MACD", value=True)
-show_bollinger = st.sidebar.checkbox("Show Bollinger Bands", value=True)
-show_supertrend = st.sidebar.checkbox("Show Supertrend", value=False)
+show_bollinger = st.sidebar.checkbox("Show Bollinger Bands", value=False)
+show_supertrend = st.sidebar.checkbox("Show Supertrend", value=True)
 show_support_resistance = st.sidebar.checkbox("Show Support/Resistance", value=False)
+show_fvg = st.sidebar.checkbox("Show Fair Value Gap", value=True)
 
-# Date range
+# Date range - adjust for intraday intervals to get enough data points
 end_d = date.today()
-start_d = end_d - timedelta(days=int(period_days))
+if interval == "5m":
+    # For 5-minute data, we need at least 500 candles
+    # 500 candles * 5 minutes = 2500 minutes = ~41.67 hours = ~1.74 days
+    # Add some buffer and round up to 3 days to ensure we get enough data
+    # Also account for market hours (6.5 hours/day for US market = ~8 trading days)
+    start_d = end_d - timedelta(days=8)  # Get last 8 days to ensure ~500 5-min candles
+elif interval in ["1m", "2m", "15m", "30m", "60m", "90m"]:
+    # Other intraday intervals - calculate days needed for ~500 candles
+    minutes_per_candle = {"1m": 1, "2m": 2, "15m": 15, "30m": 30, "60m": 60, "90m": 90}.get(interval, 60)
+    days_needed = max(2, (500 * minutes_per_candle) / (390 * 60))  # 390 minutes per trading day
+    start_d = end_d - timedelta(days=int(days_needed) + 2)  # Add buffer
+else:
+    # Daily, weekly, monthly intervals use the period_days slider
+    start_d = end_d - timedelta(days=int(period_days))
 
 # Watchlists section in main area
 st.markdown("### 📋 Watchlists")
@@ -2917,7 +3702,7 @@ selected = list(dict.fromkeys(selected))
 with tab1:
     # --- Per-ticker charts ---
     for t in selected:
-        df = load_data(t, start_d, end_d, mode, interval=interval)
+        df = load_data(t, start_d, end_d, mode, interval=interval, data_source=data_source)
         cols = st.columns([5, 1], gap="large")
         with cols[0]:
             # Header with AI Recommendations button
@@ -2952,10 +3737,39 @@ with tab1:
                 
                 if button_clicked:
                     st.session_state[f"show_ai_{t}"] = True
+                    # Initialize indicator settings if not already set
+                    if f"ai_sma_{t}" not in st.session_state:
+                        st.session_state[f"ai_sma_{t}"] = True
+                    if f"ai_rsi_{t}" not in st.session_state:
+                        st.session_state[f"ai_rsi_{t}"] = True
+                    if f"ai_macd_{t}" not in st.session_state:
+                        st.session_state[f"ai_macd_{t}"] = True
+                    if f"ai_supertrend_{t}" not in st.session_state:
+                        st.session_state[f"ai_supertrend_{t}"] = True
+                    if f"ai_fvg_{t}" not in st.session_state:
+                        st.session_state[f"ai_fvg_{t}"] = True
+                    if f"ai_news_{t}" not in st.session_state:
+                        st.session_state[f"ai_news_{t}"] = True
+                    # Get indicator settings from session state
+                    use_sma_ai = st.session_state.get(f"ai_sma_{t}", True)
+                    use_rsi_ai = st.session_state.get(f"ai_rsi_{t}", True)
+                    use_macd_ai = st.session_state.get(f"ai_macd_{t}", True)
+                    use_supertrend_ai = st.session_state.get(f"ai_supertrend_{t}", True)
+                    use_fvg_ai = st.session_state.get(f"ai_fvg_{t}", True)
+                    use_news_ai = st.session_state.get(f"ai_news_{t}", True)
                     # Generate recommendation immediately when clicked
                     with st.spinner(""):
-                        recommendation = generate_ai_recommendation(t, df, start_d, end_d, mode, interval)
+                        recommendation = generate_ai_recommendation(t, df, start_d, end_d, mode, interval,
+                                                                    use_sma=use_sma_ai, use_rsi=use_rsi_ai, use_macd=use_macd_ai,
+                                                                    use_supertrend=use_supertrend_ai, use_fvg=use_fvg_ai, use_news=use_news_ai)
                         if "error" not in recommendation:
+                            # Store indicator settings with recommendation
+                            recommendation["_use_sma"] = use_sma_ai
+                            recommendation["_use_rsi"] = use_rsi_ai
+                            recommendation["_use_macd"] = use_macd_ai
+                            recommendation["_use_supertrend"] = use_supertrend_ai
+                            recommendation["_use_fvg"] = use_fvg_ai
+                            recommendation["_use_news"] = use_news_ai
                             st.session_state[ai_recommendation_cache_key] = recommendation
                             st.rerun()
                 
@@ -3019,12 +3833,30 @@ with tab1:
                 </script>
                 """, unsafe_allow_html=True)
             
+            # Get trade parameters from AI recommendation if available
+            trade_entry = None
+            trade_stop_loss = None
+            trade_target = None
+            trade_direction = None
+            if st.session_state.get(f"show_ai_{t}", False):
+                ai_rec_cache_key = f"ai_rec_cache_{t}"
+                if ai_rec_cache_key in st.session_state:
+                    rec = st.session_state[ai_rec_cache_key]
+                    if "entry_price" in rec and "stop_loss" in rec and "target_price" in rec and "direction" in rec:
+                        trade_entry = rec.get("entry_price")
+                        trade_stop_loss = rec.get("stop_loss")
+                        trade_target = rec.get("target_price")
+                        trade_direction = rec.get("direction")
+            
             fig = make_chart(df, f"{t} — SMA {SMA_SHORT}/{SMA_LONG}", theme, pretouch,
                             show_volume=show_volume, show_rsi=show_rsi, 
                             show_macd=show_macd, show_bollinger=show_bollinger,
                             show_sma20=show_sma20, show_sma200=show_sma200,
                             show_ema=show_ema, show_supertrend=show_supertrend,
-                            show_support_resistance=show_support_resistance)
+                            show_support_resistance=show_support_resistance,
+                            show_fvg=show_fvg,
+                            trade_entry=trade_entry, trade_stop_loss=trade_stop_loss,
+                            trade_target=trade_target, trade_direction=trade_direction)
             st.plotly_chart(fig, use_container_width=True, key=f"chart_{t}_{mode}")
             
             # Export chart buttons
@@ -3056,15 +3888,77 @@ with tab1:
             
             # AI Recommendations Report
             if st.session_state.get(f"show_ai_{t}", False):
-                # Use cached recommendation if available
+                # Initialize indicator settings if not already set
+                if f"ai_sma_{t}" not in st.session_state:
+                    st.session_state[f"ai_sma_{t}"] = True
+                if f"ai_rsi_{t}" not in st.session_state:
+                    st.session_state[f"ai_rsi_{t}"] = True
+                if f"ai_macd_{t}" not in st.session_state:
+                    st.session_state[f"ai_macd_{t}"] = True
+                if f"ai_supertrend_{t}" not in st.session_state:
+                    st.session_state[f"ai_supertrend_{t}"] = True
+                if f"ai_fvg_{t}" not in st.session_state:
+                    st.session_state[f"ai_fvg_{t}"] = True
+                if f"ai_news_{t}" not in st.session_state:
+                    st.session_state[f"ai_news_{t}"] = True
+                
+                # Indicator selection for AI Recommendations
+                st.markdown("### 🤖 AI Recommendations Settings")
+                st.markdown("**Select indicators to use for AI analysis:**")
+                ai_ind_cols = st.columns(3)
+                with ai_ind_cols[0]:
+                    use_sma_ai = st.checkbox("Use SMA", value=st.session_state.get(f"ai_sma_{t}", True), key=f"ai_sma_{t}")
+                    use_rsi_ai = st.checkbox("Use RSI", value=st.session_state.get(f"ai_rsi_{t}", True), key=f"ai_rsi_{t}")
+                with ai_ind_cols[1]:
+                    use_macd_ai = st.checkbox("Use MACD", value=st.session_state.get(f"ai_macd_{t}", True), key=f"ai_macd_{t}")
+                    use_supertrend_ai = st.checkbox("Use Supertrend", value=st.session_state.get(f"ai_supertrend_{t}", True), key=f"ai_supertrend_{t}")
+                with ai_ind_cols[2]:
+                    use_fvg_ai = st.checkbox("Use Fair Value Gap", value=st.session_state.get(f"ai_fvg_{t}", True), key=f"ai_fvg_{t}")
+                    use_news_ai = st.checkbox("Use News Sentiment", value=st.session_state.get(f"ai_news_{t}", True), key=f"ai_news_{t}")
+                
+                # Get values from session state (checkboxes automatically update session state)
+                # We don't need to manually set them - the widgets handle it
+                use_sma_ai = st.session_state.get(f"ai_sma_{t}", use_sma_ai)
+                use_rsi_ai = st.session_state.get(f"ai_rsi_{t}", use_rsi_ai)
+                use_macd_ai = st.session_state.get(f"ai_macd_{t}", use_macd_ai)
+                use_supertrend_ai = st.session_state.get(f"ai_supertrend_{t}", use_supertrend_ai)
+                use_fvg_ai = st.session_state.get(f"ai_fvg_{t}", use_fvg_ai)
+                use_news_ai = st.session_state.get(f"ai_news_{t}", use_news_ai)
+                
+                st.markdown("---")
+                
+                # Use cached recommendation if available, but regenerate if indicator settings changed
                 ai_recommendation_cache_key = f"ai_rec_cache_{t}"
+                # Check if we need to regenerate based on indicator settings
+                indicator_settings_changed = False
                 if ai_recommendation_cache_key in st.session_state:
-                    recommendation = st.session_state[ai_recommendation_cache_key]
-                else:
+                    cached_rec = st.session_state[ai_recommendation_cache_key]
+                    # Check if indicator settings match (simple check)
+                    if (cached_rec.get("_use_sma") != use_sma_ai or 
+                        cached_rec.get("_use_rsi") != use_rsi_ai or
+                        cached_rec.get("_use_macd") != use_macd_ai or
+                        cached_rec.get("_use_supertrend") != use_supertrend_ai or
+                        cached_rec.get("_use_fvg") != use_fvg_ai or
+                        cached_rec.get("_use_news") != use_news_ai):
+                        indicator_settings_changed = True
+                
+                if ai_recommendation_cache_key not in st.session_state or indicator_settings_changed or st.button("🔄 Refresh Analysis", key=f"refresh_ai_{t}"):
                     with st.spinner(f"🤖 Analyzing {t}... Generating comprehensive AI recommendation..."):
-                        recommendation = generate_ai_recommendation(t, df, start_d, end_d, mode, interval)
+                        recommendation = generate_ai_recommendation(t, df, start_d, end_d, mode, interval,
+                                                                    use_sma=use_sma_ai, use_rsi=use_rsi_ai, use_macd=use_macd_ai,
+                                                                    use_supertrend=use_supertrend_ai, use_fvg=use_fvg_ai, use_news=use_news_ai)
                         if "error" not in recommendation:
+                            # Store indicator settings with recommendation
+                            recommendation["_use_sma"] = use_sma_ai
+                            recommendation["_use_rsi"] = use_rsi_ai
+                            recommendation["_use_macd"] = use_macd_ai
+                            recommendation["_use_supertrend"] = use_supertrend_ai
+                            recommendation["_use_fvg"] = use_fvg_ai
+                            recommendation["_use_news"] = use_news_ai
                             st.session_state[ai_recommendation_cache_key] = recommendation
+                            st.rerun()
+                else:
+                    recommendation = st.session_state[ai_recommendation_cache_key]
                 
                 if "error" in recommendation:
                     st.error(f"❌ {recommendation['error']}")
@@ -3091,7 +3985,7 @@ with tab1:
                     
                     # Analysis breakdown
                     st.markdown("#### 📊 Analysis Breakdown")
-                    analysis_cols = st.columns(4)
+                    analysis_cols = st.columns(6)
                     
                     with analysis_cols[0]:
                         st.markdown("**📈 SMA 20/200 Analysis**")
@@ -3106,13 +4000,27 @@ with tab1:
                         st.markdown(f'<p style="color: {rsi_color};">{recommendation["rsi_analysis"]["description"]}</p>', unsafe_allow_html=True)
                     
                     with analysis_cols[2]:
+                        st.markdown("**📊 MACD Analysis**")
+                        macd_status = recommendation.get("macd_analysis", {}).get("status", "N/A")
+                        macd_color = "#00ff88" if "Bullish" in macd_status or "Crossover" in macd_status else "#f31260" if "Bearish" in macd_status else "#b0b0b0"
+                        macd_desc = recommendation.get("macd_analysis", {}).get("description", "No MACD data available")
+                        st.markdown(f'<p style="color: {macd_color};">{macd_desc}</p>', unsafe_allow_html=True)
+                    
+                    with analysis_cols[3]:
                         st.markdown("**📊 Supertrend Analysis**")
                         supertrend_status = recommendation.get("supertrend_analysis", {}).get("status", "N/A")
                         supertrend_color = "#00ff88" if "Bullish" in supertrend_status or "Reversal" in supertrend_status else "#f31260" if "Bearish" in supertrend_status else "#b0b0b0"
                         supertrend_desc = recommendation.get("supertrend_analysis", {}).get("description", "No Supertrend data available")
                         st.markdown(f'<p style="color: {supertrend_color};">{supertrend_desc}</p>', unsafe_allow_html=True)
                     
-                    with analysis_cols[3]:
+                    with analysis_cols[4]:
+                        st.markdown("**⚡ Fair Value Gap Analysis**")
+                        fvg_status = recommendation.get("fvg_analysis", {}).get("status", "N/A")
+                        fvg_color = "#00ff88" if "Bullish" in fvg_status else "#f31260" if "Bearish" in fvg_status else "#b0b0b0"
+                        fvg_desc = recommendation.get("fvg_analysis", {}).get("description", "No FVG data available")
+                        st.markdown(f'<p style="color: {fvg_color};">{fvg_desc}</p>', unsafe_allow_html=True)
+                    
+                    with analysis_cols[5]:
                         st.markdown("**📰 News Sentiment**")
                         news_status = recommendation["news_analysis"]["status"]
                         news_color = "#00ff88" if news_status == "Bullish" else "#f31260" if news_status == "Bearish" else "#b0b0b0"
@@ -3157,7 +4065,9 @@ with tab1:
                         Based on the analysis:
                         - **SMA Trend:** {recommendation["sma_analysis"]["description"]}
                         - **RSI Condition:** {recommendation["rsi_analysis"]["description"]}
+                        - **MACD:** {recommendation.get("macd_analysis", {}).get("description", "No MACD data")}
                         - **Supertrend:** {supertrend_desc}
+                        - **Fair Value Gap:** {recommendation.get("fvg_analysis", {}).get("description", "No FVG data")}
                         - **News Sentiment:** {recommendation["news_analysis"]["description"]}
                         
                         **Trading Plan:**
@@ -3173,7 +4083,9 @@ with tab1:
                         Based on the analysis:
                         - **SMA Trend:** {recommendation["sma_analysis"]["description"]}
                         - **RSI Condition:** {recommendation["rsi_analysis"]["description"]}
+                        - **MACD:** {recommendation.get("macd_analysis", {}).get("description", "No MACD data")}
                         - **Supertrend:** {supertrend_desc}
+                        - **Fair Value Gap:** {recommendation.get("fvg_analysis", {}).get("description", "No FVG data")}
                         - **News Sentiment:** {recommendation["news_analysis"]["description"]}
                         
                         **Trading Plan:**
@@ -3190,7 +4102,9 @@ with tab1:
                         
                         - **SMA Trend:** {recommendation["sma_analysis"]["description"]}
                         - **RSI Condition:** {recommendation["rsi_analysis"]["description"]}
+                        - **MACD:** {recommendation.get("macd_analysis", {}).get("description", "No MACD data")}
                         - **Supertrend:** {supertrend_desc}
+                        - **Fair Value Gap:** {recommendation.get("fvg_analysis", {}).get("description", "No FVG data")}
                         - **News Sentiment:** {recommendation["news_analysis"]["description"]}
                         """
                     
@@ -3469,7 +4383,7 @@ with tab3:
     days_after = st.slider("Analyze performance after (days)", min_value=7, max_value=180, value=30, step=7, key="hist_days")
     
     if st.button("Analyze Crosses", key="analyze_crosses"):
-        df = load_data(hist_ticker, start_d, end_d, mode, interval=interval)
+        df = load_data(hist_ticker, start_d, end_d, mode, interval=interval, data_source=data_source)
         if not df.empty:
             df = df.copy()
             df["SMA20"] = _sma(df["close"], SMA_SHORT)
@@ -3618,7 +4532,7 @@ with tab5:
     st.caption(f"**Strategy:** {strategy_names.get(strategy, strategy)}")
     
     if st.button("Run Backtest", key="run_backtest"):
-        df = load_data(backtest_ticker, start_d, end_d, mode, interval=interval)
+        df = load_data(backtest_ticker, start_d, end_d, mode, interval=interval, data_source=data_source)
         if not df.empty:
             result = backtest_strategy(df, strategy, initial_capital)
             
@@ -3886,7 +4800,7 @@ with tab7:
     pattern_ticker = st.selectbox("Select Ticker for Pattern Analysis", selected or universe, key="pattern_ticker")
     
     if st.button("Analyze Patterns", key="analyze_patterns"):
-        df = load_data(pattern_ticker, start_d, end_d, mode, interval=interval)
+        df = load_data(pattern_ticker, start_d, end_d, mode, interval=interval, data_source=data_source)
         if not df.empty:
             patterns = detect_patterns(df)
             if patterns:
@@ -4004,7 +4918,7 @@ with tab9:
         if st.checkbox("Calculate P&L", key="calc_pnl"):
             for idx, trade in journal_df.iterrows():
                 ticker = trade["ticker"]
-                df_current = load_data(ticker, start_d, end_d, mode, interval=interval)
+                df_current = load_data(ticker, start_d, end_d, mode, interval=interval, data_source=data_source)
                 if not df_current.empty:
                     current_price = float(df_current["close"].iloc[-1])
                     if trade["type"] == "Buy":
@@ -4105,7 +5019,7 @@ with tab10:
     signal_ticker = st.selectbox("Select Ticker", selected or universe, key="signal_ticker")
     
     if st.button("Generate Signal", key="generate_signal"):
-        df = load_data(signal_ticker, start_d, end_d, mode, interval=interval)
+        df = load_data(signal_ticker, start_d, end_d, mode, interval=interval, data_source=data_source)
         if not df.empty:
             signal = generate_trading_signal(df)
             
@@ -4192,7 +5106,7 @@ with tab11:
     # Fetch current price if symbol is selected
     current_price_risk = None
     if risk_ticker:
-        df_risk = load_data(risk_ticker, start_d, end_d, mode, interval=interval)
+        df_risk = load_data(risk_ticker, start_d, end_d, mode, interval=interval, data_source=data_source)
         if not df_risk.empty:
             current_price_risk = float(df_risk["close"].iloc[-1])
             st.info(f"📊 Current {risk_ticker} price: ${current_price_risk:.2f}")
@@ -4229,7 +5143,7 @@ with tab11:
     is_long_position = st.radio("Position Type", ["Long", "Short"], key="position_type") == "Long"
     
     if st.button("Calculate ATR Stop Loss", key="calc_atr_stop"):
-        df = load_data(atr_ticker, start_d, end_d, mode, interval=interval)
+        df = load_data(atr_ticker, start_d, end_d, mode, interval=interval, data_source=data_source)
         if not df.empty:
             atr_stop = calculate_atr_stop_loss(df, atr_multiplier, is_long_position)
             current_price = float(df["close"].iloc[-1])
@@ -4256,7 +5170,7 @@ with tab11:
     # Fetch current price if symbol is selected
     current_price_rr = None
     if rr_ticker:
-        df_rr = load_data(rr_ticker, start_d, end_d, mode, interval=interval)
+        df_rr = load_data(rr_ticker, start_d, end_d, mode, interval=interval, data_source=data_source)
         if not df_rr.empty:
             current_price_rr = float(df_rr["close"].iloc[-1])
             st.info(f"📊 Current {rr_ticker} price: ${current_price_rr:.2f}")
