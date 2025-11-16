@@ -59,7 +59,8 @@ import streamlit as st
 import ui_glow_patch
 import yf_patch  # glow+session patch
 
-APP_VERSION = "v2.4.0"
+APP_VERSION = "v2.5.0"
+# v2.5.0 – Added Extended MACD indicator with adjustable sideways detection (lookback bars and range threshold), flattens MACD during range-bound markets
 # v2.4.0 – Added Fair Value Gap indicator, indicator selection for AI Recommendations, trade parameter visualization (red risk/green reward zones)
 # v2.3.0 – Added Supertrend and EMA indicators, integrated Supertrend into AI Recommendations
 # v2.2.0 – AI Recommendations system with comprehensive analysis (SMA, RSI, News Sentiment)
@@ -938,8 +939,11 @@ def fetch_news(ticker: str, max_items: int = 5) -> list:
 
 # --- AI Recommendation System ---
 def generate_ai_recommendation(ticker: str, df: pd.DataFrame, start: date, end: date, mode: str, interval: str,
-                                use_sma: bool = True, use_rsi: bool = True, use_macd: bool = True,
-                                use_supertrend: bool = True, use_fvg: bool = True, use_news: bool = True) -> dict:
+                               use_sma: bool = True, use_rsi: bool = True, use_macd: bool = True,
+                               use_supertrend: bool = True, use_fvg: bool = True, use_news: bool = True,
+                               macd_mode: str = "Extended",
+                               macd_sideways_window: int = 10,
+                               macd_sideways_threshold: float = 8.0) -> dict:
     """Generate comprehensive AI trading recommendation based on selected indicators."""
     if df.empty or len(df) < 200:
         return {"error": "Insufficient data for analysis"}
@@ -960,8 +964,16 @@ def generate_ai_recommendation(ticker: str, df: pd.DataFrame, start: date, end: 
     rsi = _rsi(d["close"], window=14)
     rsi_val = float(rsi.iloc[-1]) if not pd.isna(rsi.iloc[-1]) else 50
     
-    # Calculate MACD
-    macd_line, signal_line, macd_hist = _macd(d["close"], fast=12, slow=26, signal=9)
+    # Calculate MACD according to selected mode
+    if macd_mode == "Normal":
+        macd_line, signal_line, macd_hist = _macd(d["close"], fast=12, slow=26, signal=9)
+    else:
+        # Extended MACD (flattens during sideways markets)
+            macd_line, signal_line, macd_hist = _macd_extended(
+                d["close"], fast=12, slow=26, signal=9,
+                sideways_window=macd_sideways_window,
+                sideways_threshold=macd_sideways_threshold / 100.0
+            )
     macd_val = float(macd_line.iloc[-1]) if not pd.isna(macd_line.iloc[-1]) else 0
     signal_val = float(signal_line.iloc[-1]) if not pd.isna(signal_line.iloc[-1]) else 0
     macd_hist_val = float(macd_hist.iloc[-1]) if not pd.isna(macd_hist.iloc[-1]) else 0
@@ -1079,38 +1091,51 @@ def generate_ai_recommendation(ticker: str, df: pd.DataFrame, start: date, end: 
         macd_analysis["description"] = "MACD analysis is disabled"
         macd_score = 0
     else:
-        # Check for MACD crossovers
-        macd_above_signal = macd_val > signal_val
-        macd_above_signal_prev = macd_prev > signal_prev
-        macd_cross_up = not macd_above_signal_prev and macd_above_signal
-        macd_cross_dn = macd_above_signal_prev and not macd_above_signal
-        
-        if macd_cross_up:
-            macd_analysis["status"] = "Bullish Crossover"
-            macd_analysis["description"] = f"🟢 MACD BULLISH CROSSOVER! MACD ({macd_val:.4f}) just crossed above Signal ({signal_val:.4f}) - Strong buy signal"
-            macd_score = 3
-        elif macd_cross_dn:
-            macd_analysis["status"] = "Bearish Crossover"
-            macd_analysis["description"] = f"🔴 MACD BEARISH CROSSOVER! MACD ({macd_val:.4f}) just crossed below Signal ({signal_val:.4f}) - Strong sell signal"
-            macd_score = -3
-        elif macd_above_signal:
-            if macd_hist_val > 0:
-                macd_analysis["status"] = "Bullish"
-                macd_analysis["description"] = f"MACD ({macd_val:.4f}) above Signal ({signal_val:.4f}) with positive histogram - Bullish momentum"
-                macd_score = 2
-            else:
-                macd_analysis["status"] = "Bullish (Weakening)"
-                macd_analysis["description"] = f"MACD ({macd_val:.4f}) above Signal ({signal_val:.4f}) but histogram negative - Bullish momentum weakening"
-                macd_score = 1
+        # Detect if the recent market is sideways; if so, treat MACD as neutral/flat
+        sideways_series = _sideways_mask(
+            d["close"],
+            window=macd_sideways_window,
+            threshold=macd_sideways_threshold / 100.0
+        )
+        is_sideways = bool(sideways_series.iloc[-1]) if len(sideways_series) > 0 else False
+
+        if is_sideways:
+            macd_analysis["status"] = "Sideways / Flat"
+            macd_analysis["description"] = "Market is range-bound; Extended MACD is flattened to reflect sideways conditions (neutral signal)"
+            macd_score = 0
         else:
-            if macd_hist_val < 0:
-                macd_analysis["status"] = "Bearish"
-                macd_analysis["description"] = f"MACD ({macd_val:.4f}) below Signal ({signal_val:.4f}) with negative histogram - Bearish momentum"
-                macd_score = -2
+            # Check for MACD crossovers
+            macd_above_signal = macd_val > signal_val
+            macd_above_signal_prev = macd_prev > signal_prev
+            macd_cross_up = not macd_above_signal_prev and macd_above_signal
+            macd_cross_dn = macd_above_signal_prev and not macd_above_signal
+            
+            if macd_cross_up:
+                macd_analysis["status"] = "Bullish Crossover"
+                macd_analysis["description"] = f"🟢 MACD BULLISH CROSSOVER! MACD ({macd_val:.4f}) just crossed above Signal ({signal_val:.4f}) - Strong buy signal"
+                macd_score = 3
+            elif macd_cross_dn:
+                macd_analysis["status"] = "Bearish Crossover"
+                macd_analysis["description"] = f"🔴 MACD BEARISH CROSSOVER! MACD ({macd_val:.4f}) just crossed below Signal ({signal_val:.4f}) - Strong sell signal"
+                macd_score = -3
+            elif macd_above_signal:
+                if macd_hist_val > 0:
+                    macd_analysis["status"] = "Bullish"
+                    macd_analysis["description"] = f"MACD ({macd_val:.4f}) above Signal ({signal_val:.4f}) with positive histogram - Bullish momentum"
+                    macd_score = 2
+                else:
+                    macd_analysis["status"] = "Bullish (Weakening)"
+                    macd_analysis["description"] = f"MACD ({macd_val:.4f}) above Signal ({signal_val:.4f}) but histogram negative - Bullish momentum weakening"
+                    macd_score = 1
             else:
-                macd_analysis["status"] = "Bearish (Weakening)"
-                macd_analysis["description"] = f"MACD ({macd_val:.4f}) below Signal ({signal_val:.4f}) but histogram positive - Bearish momentum weakening"
-                macd_score = -1
+                if macd_hist_val < 0:
+                    macd_analysis["status"] = "Bearish"
+                    macd_analysis["description"] = f"MACD ({macd_val:.4f}) below Signal ({signal_val:.4f}) with negative histogram - Bearish momentum"
+                    macd_score = -2
+                else:
+                    macd_analysis["status"] = "Bearish (Weakening)"
+                    macd_analysis["description"] = f"MACD ({macd_val:.4f}) below Signal ({signal_val:.4f}) but histogram positive - Bearish momentum weakening"
+                    macd_score = -1
     
     # Analyze Fair Value Gaps (only if enabled)
     fvg_analysis = {}
@@ -1689,6 +1714,49 @@ def _macd(series: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9) ->
     signal_line = _ema(macd_line, signal)
     histogram = macd_line - signal_line
     return macd_line, signal_line, histogram
+
+
+def _sideways_mask(price: pd.Series, window: int = 10, threshold: float = 0.08) -> pd.Series:
+    """
+    Detect sideways / range-bound conditions.
+    We look at the rolling high-low range relative to the rolling mean price.
+    If the range is below `threshold` (e.g. ~8%), we consider that window sideways.
+    Returns a boolean Series aligned with `price`.
+    """
+    rolling_max = price.rolling(window=window, min_periods=window).max()
+    rolling_min = price.rolling(window=window, min_periods=window).min()
+    rolling_mean = price.rolling(window=window, min_periods=window).mean()
+    with np.errstate(divide="ignore", invalid="ignore"):
+        price_range_pct = (rolling_max - rolling_min) / rolling_mean
+    return price_range_pct < threshold
+
+
+def _macd_extended(series: pd.Series,
+                   fast: int = 12,
+                   slow: int = 26,
+                   signal: int = 9,
+                   sideways_window: int = 10,
+                   sideways_threshold: float = 0.08) -> tuple[pd.Series, pd.Series, pd.Series]:
+    """
+    Extended MACD that flattens during sideways markets.
+    - Computes standard MACD.
+    - Detects sideways/range-bound conditions using `_sideways_mask`.
+    - During sideways periods, MACD, signal, and histogram are forced toward 0,
+      so the indicator appears flat when the market is chopping sideways.
+    """
+    macd_line, signal_line, histogram = _macd(series, fast=fast, slow=slow, signal=signal)
+    mask = _sideways_mask(series, window=sideways_window, threshold=sideways_threshold)
+
+    # Make copies so we don't mutate the originals
+    macd_ext = macd_line.copy()
+    signal_ext = signal_line.copy()
+    hist_ext = histogram.copy()
+
+    macd_ext[mask] = 0.0
+    signal_ext[mask] = 0.0
+    hist_ext[mask] = 0.0
+
+    return macd_ext, signal_ext, hist_ext
 
 def _bollinger_bands(series: pd.Series, window: int = 20, num_std: float = 2.0) -> tuple[pd.Series, pd.Series, pd.Series]:
     """Calculate Bollinger Bands.
@@ -2419,6 +2487,9 @@ def make_chart(df: pd.DataFrame, title: str, theme: str, pretouch_pct: float | N
                show_bollinger: bool = True, show_sma20: bool = True, show_sma200: bool = True,
                show_ema: bool = False, show_supertrend: bool = False,
                show_support_resistance: bool = False, show_fvg: bool = False,
+               macd_mode: str = "Extended",
+               macd_sideways_window: int = 10,
+               macd_sideways_threshold: float = 8.0,
                trade_entry: float | None = None, trade_stop_loss: float | None = None,
                trade_target: float | None = None, trade_direction: str | None = None) -> go.Figure:
     # Ensure timezone-naive index to avoid UTC offset issues in slicing operations
@@ -2997,11 +3068,21 @@ def make_chart(df: pd.DataFrame, title: str, theme: str, pretouch_pct: float | N
     # MACD subplot
     if show_macd:
         row += 1
-        macd_line, signal_line, histogram = _macd(df["close"])
+        # Choose between normal and extended MACD
+        if macd_mode == "Normal":
+            macd_line, signal_line, histogram = _macd(df["close"])
+            macd_title = "MACD"
+        else:
+            macd_line, signal_line, histogram = _macd_extended(
+                df["close"],
+                sideways_window=macd_sideways_window,
+                sideways_threshold=macd_sideways_threshold / 100.0
+            )
+            macd_title = "Extended MACD"
         macd_color = "#0056b3" if theme == "Light" else "#3498db"
         signal_color = "#c82333" if theme == "Light" else "#e74c3c"
         fig.add_trace(go.Scatter(
-            x=df.index, y=macd_line, mode="lines", name="MACD",
+            x=df.index, y=macd_line, mode="lines", name=macd_title,
             line=dict(width=2, color=macd_color)
         ), row=row, col=1)
         fig.add_trace(go.Scatter(
@@ -3629,6 +3710,31 @@ show_ema = st.sidebar.checkbox("Show EMA", value=False)
 show_volume = st.sidebar.checkbox("Show Volume", value=False)
 show_rsi = st.sidebar.checkbox("Show RSI", value=True)
 show_macd = st.sidebar.checkbox("Show MACD", value=True)
+
+# MACD mode selector (only shown if MACD enabled)
+macd_mode = "Extended"
+macd_sideways_window = 10
+macd_sideways_threshold = 8.0
+if show_macd:
+    macd_mode = st.sidebar.radio(
+        "MACD Mode",
+        options=["Normal", "Extended"],
+        index=1,  # Default to Extended
+        help="Normal = standard MACD. Extended = MACD that flattens during sideways/ranging markets."
+    )
+    
+    if macd_mode == "Extended":
+        macd_sideways_window = st.sidebar.slider(
+            "Extended MACD Lookback (bars)",
+            min_value=5, max_value=50, value=10, step=1,
+            help="Number of bars used to detect sideways/range-bound conditions."
+        )
+        macd_sideways_threshold = st.sidebar.slider(
+            "Extended MACD Range Threshold (%)",
+            min_value=1.0, max_value=30.0, value=8.0, step=0.5,
+            help="If high-low range over the lookback is below this %, MACD is flattened."
+        )
+
 show_bollinger = st.sidebar.checkbox("Show Bollinger Bands", value=False)
 show_supertrend = st.sidebar.checkbox("Show Supertrend", value=True)
 show_support_resistance = st.sidebar.checkbox("Show Support/Resistance", value=False)
@@ -3759,9 +3865,16 @@ with tab1:
                     use_news_ai = st.session_state.get(f"ai_news_{t}", True)
                     # Generate recommendation immediately when clicked
                     with st.spinner(""):
-                        recommendation = generate_ai_recommendation(t, df, start_d, end_d, mode, interval,
-                                                                    use_sma=use_sma_ai, use_rsi=use_rsi_ai, use_macd=use_macd_ai,
-                                                                    use_supertrend=use_supertrend_ai, use_fvg=use_fvg_ai, use_news=use_news_ai)
+                        # Use same MACD mode and extended settings as chart for AI by default
+                        ai_macd_mode = macd_mode
+                        recommendation = generate_ai_recommendation(
+                            t, df, start_d, end_d, mode, interval,
+                            use_sma=use_sma_ai, use_rsi=use_rsi_ai, use_macd=use_macd_ai,
+                            use_supertrend=use_supertrend_ai, use_fvg=use_fvg_ai, use_news=use_news_ai,
+                            macd_mode=ai_macd_mode,
+                            macd_sideways_window=macd_sideways_window,
+                            macd_sideways_threshold=macd_sideways_threshold
+                        )
                         if "error" not in recommendation:
                             # Store indicator settings with recommendation
                             recommendation["_use_sma"] = use_sma_ai
@@ -3848,15 +3961,20 @@ with tab1:
                         trade_target = rec.get("target_price")
                         trade_direction = rec.get("direction")
             
-            fig = make_chart(df, f"{t} — SMA {SMA_SHORT}/{SMA_LONG}", theme, pretouch,
-                            show_volume=show_volume, show_rsi=show_rsi, 
-                            show_macd=show_macd, show_bollinger=show_bollinger,
-                            show_sma20=show_sma20, show_sma200=show_sma200,
-                            show_ema=show_ema, show_supertrend=show_supertrend,
-                            show_support_resistance=show_support_resistance,
-                            show_fvg=show_fvg,
-                            trade_entry=trade_entry, trade_stop_loss=trade_stop_loss,
-                            trade_target=trade_target, trade_direction=trade_direction)
+            fig = make_chart(
+                df, f"{t} — SMA {SMA_SHORT}/{SMA_LONG}", theme, pretouch,
+                show_volume=show_volume, show_rsi=show_rsi,
+                show_macd=show_macd, show_bollinger=show_bollinger,
+                show_sma20=show_sma20, show_sma200=show_sma200,
+                show_ema=show_ema, show_supertrend=show_supertrend,
+                show_support_resistance=show_support_resistance,
+                show_fvg=show_fvg,
+                macd_mode=macd_mode,
+                macd_sideways_window=macd_sideways_window,
+                macd_sideways_threshold=macd_sideways_threshold,
+                trade_entry=trade_entry, trade_stop_loss=trade_stop_loss,
+                trade_target=trade_target, trade_direction=trade_direction
+            )
             st.plotly_chart(fig, use_container_width=True, key=f"chart_{t}_{mode}")
             
             # Export chart buttons

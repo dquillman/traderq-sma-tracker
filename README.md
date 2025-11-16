@@ -11,6 +11,7 @@ A Streamlit-based web application for tracking SMA (Simple Moving Average) cross
 - **Volume Analysis**: Volume bars with volume moving averages and volume ratios
 - **RSI Indicator**: Relative Strength Index with overbought (70) and oversold (30) levels
 - **MACD Indicator**: Moving Average Convergence Divergence with signal line and histogram
+- **Extended MACD Indicator**: MACD that flattens during sideways/range-bound markets (adjustable lookback and threshold)
 - **Bollinger Bands**: Price volatility bands with position tracking
 - **EMA Indicator**: Exponential Moving Average with configurable period
 - **Supertrend Indicator**: Trend-following indicator with color-coded bullish/bearish signals
@@ -70,7 +71,7 @@ The app will open in your browser at `http://localhost:8501`
 
 ## Version
 
-Current version: v2.4.0
+Current version: v2.5.0
 
 ## License
 
