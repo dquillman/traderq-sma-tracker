@@ -59,7 +59,7 @@ import streamlit as st
 import ui_glow_patch
 import yf_patch  # glow+session patch
 
-APP_VERSION = "v2.5.0"
+APP_VERSION = "v2.5.1"
 # v2.5.0 – Added Extended MACD indicator with adjustable sideways detection (lookback bars and range threshold), flattens MACD during range-bound markets
 # v2.4.0 – Added Fair Value Gap indicator, indicator selection for AI Recommendations, trade parameter visualization (red risk/green reward zones)
 # v2.3.0 – Added Supertrend and EMA indicators, integrated Supertrend into AI Recommendations
@@ -82,6 +82,7 @@ WATCHLISTS_FILE = Path(__file__).parent / ".watchlists.json"
 TRADE_JOURNAL_FILE = Path(__file__).parent / ".trade_journal.json"
 ALERT_HISTORY_FILE = Path(__file__).parent / ".alert_history.json"
 EMAIL_CONFIG_FILE = Path(__file__).parent / ".email_config.json"
+KRAKEN_CONFIG_FILE = Path(__file__).parent / ".kraken_config.json"
 
 def load_custom_tickers() -> dict:
     """Load custom tickers from JSON file."""
@@ -243,6 +244,695 @@ def save_email_config(config: dict):
             json.dump(config, f, indent=2)
     except Exception:
         pass
+
+# --- Kraken API Configuration ---
+def load_kraken_config() -> dict:
+    """Load Kraken API configuration from JSON file."""
+    if KRAKEN_CONFIG_FILE.exists():
+        try:
+            with open(KRAKEN_CONFIG_FILE, "r") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+def save_kraken_config(config: dict):
+    """Save Kraken API configuration to JSON file."""
+    try:
+        with open(KRAKEN_CONFIG_FILE, "w") as f:
+            json.dump(config, f, indent=2)
+    except Exception:
+        pass
+
+# --- Kraken API Functions ---
+def get_kraken_client(api_key: str = None, api_secret: str = None):
+    """Initialize Kraken API client."""
+    # Try python-kraken-sdk first (newer SDK)
+    try:
+        from kraken.spot import SpotClient, User, Trade
+    except ImportError:
+        # Fallback to krakenex (older library)
+        try:
+            import krakenex
+        except ImportError:
+            st.error("⚠️ Kraken SDK not installed. Please run: `pip install python-kraken-sdk` or `pip install krakenex`")
+            return None
+        
+        # Use krakenex
+        try:
+            if not api_key or not api_secret:
+                config = load_kraken_config()
+                api_key = config.get("api_key", "")
+                api_secret = config.get("api_secret", "")
+            
+            if not api_key or not api_secret:
+                return None
+            
+            api = krakenex.API(key=api_key, secret=api_secret)
+            # Wrap in a compatible interface
+            class KrakenClientWrapper:
+                def __init__(self, api):
+                    self.api = api
+                def get_account_balance(self):
+                    return self.api.query_private('Balance')
+                def get_open_orders(self):
+                    return self.api.query_private('OpenOrders')
+                def add_order(self, **kwargs):
+                    return self.api.query_private('AddOrder', kwargs)
+                def cancel_order(self, txid=None):
+                    return self.api.query_private('CancelOrder', {'txid': txid})
+            return KrakenClientWrapper(api)
+        except Exception as e:
+            st.error(f"⚠️ Error initializing Kraken client (krakenex): {str(e)}")
+            return None
+    
+    # Use python-kraken-sdk
+    try:
+        if not api_key or not api_secret:
+            config = load_kraken_config()
+            api_key = config.get("api_key", "")
+            api_secret = config.get("api_secret", "")
+        
+        if not api_key or not api_secret:
+            return None
+        
+        # Create SpotClient and wrap User/Trade classes for compatibility
+        client = SpotClient(key=api_key, secret=api_secret)
+        user = User(client)
+        trade = Trade(client)
+        
+        # Create a wrapper class to match the expected interface
+        class KrakenClientWrapper:
+            def __init__(self, client, user, trade):
+                self.client = client
+                self.user = user
+                self.trade = trade
+            
+            def get_account_balance(self):
+                return self.user.get_account_balance()
+            
+            def get_open_orders(self):
+                return self.user.get_open_orders()
+            
+            def add_order(self, **kwargs):
+                # Convert to python-kraken-sdk format
+                # create_order expects: ordertype, side, pair, volume, price (optional)
+                order_params = {
+                    "ordertype": kwargs.get("ordertype"),  # "market" or "limit"
+                    "side": kwargs.get("type"),  # "buy" or "sell"
+                    "pair": kwargs.get("pair"),
+                    "volume": kwargs.get("volume")
+                }
+                if "price" in kwargs and kwargs["price"]:
+                    order_params["price"] = kwargs["price"]
+                return self.trade.create_order(**order_params)
+            
+            def cancel_order(self, txid=None):
+                return self.trade.cancel_order(txid=txid)
+        
+        return KrakenClientWrapper(client, user, trade)
+    except Exception as e:
+        st.error(f"⚠️ Error initializing Kraken client: {str(e)}\n\nThis might be due to:\n- Invalid API key format\n- Network connectivity issues\n- API key permissions")
+        return None
+
+def get_kraken_balance(client) -> dict:
+    """Get account balance from Kraken."""
+    try:
+        if not client:
+            return {"error": "Client not initialized"}
+        result = client.get_account_balance()
+        # Handle different response formats
+        if isinstance(result, dict):
+            if "error" in result and result["error"]:
+                # Kraken returns error as a list - empty list means no error
+                if isinstance(result["error"], list) and len(result["error"]) > 0:
+                    error_msg = ", ".join(result["error"])
+                    return {"error": error_msg}
+                elif not isinstance(result["error"], list) and result["error"]:
+                    return {"error": str(result["error"])}
+            # Extract balance from result format
+            if "result" in result:
+                balance = result["result"]
+                # Kraken balance format: {"result": {"ZUSD": "100.00", "XXBT": "0.5"}}
+                return {"success": True, "balance": balance}
+            elif "balance" in result:
+                return {"success": True, "balance": result["balance"]}
+            else:
+                return {"success": True, "balance": result}
+        return {"success": True, "balance": result}
+    except Exception as e:
+        return {"error": str(e)}
+
+def get_kraken_open_orders(client) -> dict:
+    """Get open orders from Kraken."""
+    try:
+        if not client:
+            return {"error": "Client not initialized"}
+        result = client.get_open_orders()
+        # Handle different response formats
+        if isinstance(result, dict):
+            if "error" in result and result["error"]:
+                # Kraken returns error as a list - empty list means no error
+                if isinstance(result["error"], list) and len(result["error"]) > 0:
+                    error_msg = ", ".join(result["error"])
+                    return {"error": error_msg}
+                elif not isinstance(result["error"], list) and result["error"]:
+                    return {"error": str(result["error"])}
+            # Extract orders from result format
+            if "result" in result:
+                orders = result["result"]
+                # Kraken orders format: {"result": {"open": {...}}}
+                if "open" in orders:
+                    orders = orders["open"]
+                return {"success": True, "orders": orders}
+            elif "orders" in result:
+                return {"success": True, "orders": result["orders"]}
+            else:
+                return {"success": True, "orders": result}
+        return {"success": True, "orders": result}
+    except Exception as e:
+        return {"error": str(e)}
+
+def place_kraken_order(client, pair: str, type: str, ordertype: str, volume: float, price: float = None, dry_run: bool = False) -> dict:
+    """
+    Place an order on Kraken.
+    
+    Args:
+        client: Kraken API client
+        pair: Trading pair (e.g., "XBTUSD", "ETHUSD")
+        type: "buy" or "sell"
+        ordertype: "market", "limit", "stop-loss", etc.
+        volume: Order volume
+        price: Limit price (required for limit orders)
+        dry_run: If True, validate order without placing it
+    
+    Returns:
+        dict with order result or error
+    """
+    try:
+        if not client:
+            return {"error": "Client not initialized"}
+        
+        if dry_run:
+            # Just validate the order parameters
+            if ordertype == "limit" and price is None:
+                return {"error": "Limit price required for limit orders"}
+            if volume <= 0:
+                return {"error": "Volume must be greater than 0"}
+            return {"success": True, "dry_run": True, "message": "Order parameters validated (dry run)"}
+        
+        # Build order parameters (format depends on SDK)
+        order_params = {
+            "pair": pair,
+            "type": type,  # "buy" or "sell"
+            "ordertype": ordertype,  # "market" or "limit"
+            "volume": str(volume)
+        }
+        
+        if ordertype == "limit" and price:
+            order_params["price"] = str(price)
+        
+        result = client.add_order(**order_params)
+        
+        # Handle different response formats
+        if isinstance(result, dict):
+            if "error" in result and result["error"]:
+                error_msg = result["error"] if isinstance(result["error"], list) else [str(result["error"])]
+                return {"error": ", ".join(error_msg)}
+            if "result" in result:
+                order_data = result["result"]
+            else:
+                order_data = result
+            return {"success": True, "order": order_data}
+        
+        return {"success": True, "order": result}
+    except Exception as e:
+        return {"error": str(e)}
+
+def cancel_kraken_order(client, txid: str) -> dict:
+    """Cancel an order on Kraken."""
+    try:
+        if not client:
+            return {"error": "Client not initialized"}
+        result = client.cancel_order(txid=txid)
+        # Handle different response formats
+        if isinstance(result, dict):
+            if "error" in result and result["error"]:
+                error_msg = result["error"] if isinstance(result["error"], list) else [str(result["error"])]
+                return {"error": ", ".join(error_msg)}
+            if "result" in result:
+                cancel_data = result["result"]
+            else:
+                cancel_data = result
+            return {"success": True, "result": cancel_data}
+        return {"success": True, "result": result}
+    except Exception as e:
+        return {"error": str(e)}
+
+def get_kraken_tradable_pairs(client) -> list:
+    """Get list of tradable pairs on Kraken."""
+    try:
+        if not client:
+            return []
+        # Use public endpoint for asset pairs
+        import requests
+        response = requests.get("https://api.kraken.com/0/public/AssetPairs")
+        if response.status_code == 200:
+            data = response.json()
+            if "result" in data:
+                pairs = list(data["result"].keys())
+                # Filter for common crypto pairs
+                common_pairs = [p for p in pairs if any(c in p.upper() for c in ["USD", "EUR", "USDT"])]
+                return sorted(common_pairs)[:50]  # Return first 50
+        return []
+    except Exception:
+        # Return common pairs as fallback
+        return ["XBTUSD", "ETHUSD", "ADAUSD", "SOLUSD", "DOTUSD", "LINKUSD", "MATICUSD", "AVAXUSD"]
+
+def convert_ticker_to_kraken_pair(ticker: str) -> str:
+    """Convert ticker format (e.g., BTC-USD) to Kraken pair format (e.g., XBTUSD)."""
+    mapping = {
+        "BTC-USD": "XBTUSD",
+        "ETH-USD": "ETHUSD",
+        "ADA-USD": "ADAUSD",
+        "SOL-USD": "SOLUSD",
+        "DOT-USD": "DOTUSD",
+        "LINK-USD": "LINKUSD",
+        "MATIC-USD": "MATICUSD",
+        "AVAX-USD": "AVAXUSD",
+        "DOGE-USD": "XDGUSD",
+        "XRP-USD": "XRPUSD",
+        "LTC-USD": "LTCUSD",
+    }
+    
+    ticker_upper = ticker.upper()
+    if ticker_upper in mapping:
+        return mapping[ticker_upper]
+    
+    # Try to convert generically
+    ticker_clean = ticker_upper.replace("-USD", "USD").replace("-", "")
+    # Kraken uses XBT for Bitcoin
+    if ticker_clean.startswith("BTC"):
+        ticker_clean = ticker_clean.replace("BTC", "XBT")
+    return ticker_clean
+
+def validate_bracket_prices(side: str, entry_price: float, stop_loss_price: float, take_profit_price: float) -> dict:
+    """
+    Validate bracket order price levels make sense.
+    
+    For BUY orders:
+        - Stop-loss should be BELOW entry
+        - Take-profit should be ABOVE entry
+    
+    For SELL orders:
+        - Stop-loss should be ABOVE entry
+        - Take-profit should be BELOW entry
+    
+    Returns:
+        dict with "valid": bool and "error": str if invalid
+    """
+    if not entry_price or entry_price <= 0:
+        return {"valid": False, "error": "Entry price must be greater than 0"}
+    
+    if not stop_loss_price or stop_loss_price <= 0:
+        return {"valid": False, "error": "Stop-loss price must be greater than 0"}
+    
+    if not take_profit_price or take_profit_price <= 0:
+        return {"valid": False, "error": "Take-profit price must be greater than 0"}
+    
+    side_lower = side.lower()
+    
+    if side_lower == "buy":
+        # For buy orders: SL below entry, TP above entry
+        if stop_loss_price >= entry_price:
+            return {"valid": False, "error": "For BUY orders, stop-loss must be BELOW entry price"}
+        if take_profit_price <= entry_price:
+            return {"valid": False, "error": "For BUY orders, take-profit must be ABOVE entry price"}
+    elif side_lower == "sell":
+        # For sell orders: SL above entry, TP below entry
+        if stop_loss_price <= entry_price:
+            return {"valid": False, "error": "For SELL orders, stop-loss must be ABOVE entry price"}
+        if take_profit_price >= entry_price:
+            return {"valid": False, "error": "For SELL orders, take-profit must be BELOW entry price"}
+    else:
+        return {"valid": False, "error": "Side must be 'buy' or 'sell'"}
+    
+    return {"valid": True}
+
+def calculate_bracket_metrics(entry_price: float, stop_loss_price: float, take_profit_price: float, volume: float) -> dict:
+    """
+    Calculate risk/reward metrics for bracket order.
+    
+    Returns:
+        dict with risk/reward analysis
+    """
+    risk_per_unit = abs(entry_price - stop_loss_price)
+    reward_per_unit = abs(take_profit_price - entry_price)
+    
+    total_risk = risk_per_unit * volume
+    total_reward = reward_per_unit * volume
+    
+    risk_pct = (risk_per_unit / entry_price) * 100
+    reward_pct = (reward_per_unit / entry_price) * 100
+    
+    risk_reward_ratio = reward_per_unit / risk_per_unit if risk_per_unit > 0 else 0
+    
+    return {
+        "risk_per_unit": risk_per_unit,
+        "reward_per_unit": reward_per_unit,
+        "total_risk": total_risk,
+        "total_reward": total_reward,
+        "risk_pct": risk_pct,
+        "reward_pct": reward_pct,
+        "risk_reward_ratio": risk_reward_ratio
+    }
+
+def place_bracket_order(client, pair: str, side: str, volume: float, 
+                       entry_price: float = None, 
+                       stop_loss_price: float = None, 
+                       take_profit_price: float = None,
+                       dry_run: bool = False) -> dict:
+    """
+    Place a bracket order: entry + stop-loss + take-profit.
+    
+    Args:
+        client: Kraken API client
+        pair: Trading pair (e.g., "XBTUSD")
+        side: "buy" or "sell"
+        volume: Order volume
+        entry_price: Entry price (None for market order)
+        stop_loss_price: Stop-loss trigger price
+        take_profit_price: Take-profit limit price
+        dry_run: If True, validate without placing
+    
+    Returns:
+        dict with results for all three orders
+    """
+    try:
+        if not client:
+            return {"error": "Client not initialized"}
+        
+        # Determine entry order type
+        entry_ordertype = "market" if entry_price is None else "limit"
+        effective_entry_price = entry_price if entry_price else 0  # Will be filled at market price
+        
+        # Validate bracket prices (skip if market entry, use current market price estimate)
+        if entry_price:
+            validation = validate_bracket_prices(side, entry_price, stop_loss_price, take_profit_price)
+            if not validation["valid"]:
+                return {"error": validation["error"]}
+        
+        if dry_run:
+            # Validate all parameters
+            if volume <= 0:
+                return {"error": "Volume must be greater than 0"}
+            if entry_ordertype == "limit" and not entry_price:
+                return {"error": "Entry price required for limit orders"}
+            if not stop_loss_price or stop_loss_price <= 0:
+                return {"error": "Valid stop-loss price required"}
+            if not take_profit_price or take_profit_price <= 0:
+                return {"error": "Valid take-profit price required"}
+            
+            return {
+                "success": True,
+                "dry_run": True,
+                "message": "Bracket order validated successfully",
+                "entry_type": entry_ordertype,
+                "stop_loss_type": "stop-loss-limit",
+                "take_profit_type": "take-profit-limit"
+            }
+        
+        results = {
+            "entry_order": None,
+            "stop_loss_order": None,
+            "take_profit_order": None,
+            "errors": []
+        }
+        
+        # 1. Place entry order
+        entry_result = place_kraken_order(
+            client,
+            pair=pair,
+            type=side,
+            ordertype=entry_ordertype,
+            volume=volume,
+            price=entry_price,
+            dry_run=False
+        )
+        
+        if "error" in entry_result:
+            return {"error": f"Entry order failed: {entry_result['error']}"}
+        
+        results["entry_order"] = entry_result
+        
+        # 2. Place stop-loss order
+        # For Kraken, we use stop-loss-limit order type
+        # The stop-loss triggers at stop_loss_price, then places a limit order slightly worse to ensure fill
+        stop_offset = abs(stop_loss_price * 0.005)  # 0.5% offset for limit price
+        stop_limit_price = stop_loss_price - stop_offset if side == "buy" else stop_loss_price + stop_offset
+        
+        try:
+            # Kraken stop-loss orders use opposite side (if you bought, you sell to exit)
+            stop_side = "sell" if side == "buy" else "buy"
+            
+            stop_params = {
+                "pair": pair,
+                "type": stop_side,
+                "ordertype": "stop-loss-limit",
+                "volume": str(volume),
+                "price": str(stop_loss_price),  # Trigger price
+                "price2": str(stop_limit_price)  # Limit price after trigger
+            }
+            
+            stop_result = client.add_order(**stop_params)
+            
+            if isinstance(stop_result, dict):
+                if "error" in stop_result and stop_result["error"]:
+                    error_msg = stop_result["error"] if isinstance(stop_result["error"], list) else [str(stop_result["error"])]
+                    results["errors"].append(f"Stop-loss failed: {', '.join(error_msg)}")
+                else:
+                    results["stop_loss_order"] = stop_result
+            else:
+                results["stop_loss_order"] = stop_result
+                
+        except Exception as e:
+            results["errors"].append(f"Stop-loss error: {str(e)}")
+        
+        # 3. Place take-profit order
+        try:
+            # Take-profit also uses opposite side
+            tp_side = "sell" if side == "buy" else "buy"
+            
+            tp_params = {
+                "pair": pair,
+                "type": tp_side,
+                "ordertype": "take-profit-limit",
+                "volume": str(volume),
+                "price": str(take_profit_price),  # Trigger price
+                "price2": str(take_profit_price)  # Limit price (same as trigger for take-profit)
+            }
+            
+            tp_result = client.add_order(**tp_params)
+            
+            if isinstance(tp_result, dict):
+                if "error" in tp_result and tp_result["error"]:
+                    error_msg = tp_result["error"] if isinstance(tp_result["error"], list) else [str(tp_result["error"])]
+                    results["errors"].append(f"Take-profit failed: {', '.join(error_msg)}")
+                else:
+                    results["take_profit_order"] = tp_result
+            else:
+                results["take_profit_order"] = tp_result
+                
+        except Exception as e:
+            results["errors"].append(f"Take-profit error: {str(e)}")
+        
+        # Determine overall success
+        if results["entry_order"] and results["stop_loss_order"] and results["take_profit_order"]:
+            results["success"] = True
+            results["message"] = "All three orders placed successfully!"
+        elif results["entry_order"] and results["stop_loss_order"]:
+            results["success"] = True
+            results["message"] = "Entry and stop-loss placed. Take-profit failed - please place manually!"
+        elif results["entry_order"]:
+            results["success"] = True
+            results["message"] = "⚠️ WARNING: Only entry order placed! Stop-loss and take-profit failed - PLACE MANUALLY IMMEDIATELY!"
+        else:
+            results["success"] = False
+            results["message"] = "Bracket order failed"
+        
+        return results
+        
+    except Exception as e:
+        return {"error": str(e)}
+
+def calculate_easy_mode_signal(df: pd.DataFrame) -> dict:
+    """
+    Calculate a simplified 'Traffic Light' signal for Easy Mode.
+    Returns:
+        dict with 'signal' (buy/sell/neutral), 'score' (-3 to +3), 'reasons' (list), 'color' (green/red/yellow)
+    """
+    if df.empty or len(df) < 200:
+        return {"signal": "NEUTRAL", "score": 0, "reasons": ["Insufficient data"], "color": "yellow"}
+    
+    # Ensure we work on a copy
+    df = df.copy()
+    
+    # Calculate indicators if missing
+    if "SMA20" not in df.columns:
+        df["SMA20"] = _sma(df["close"], 20)
+    if "SMA200" not in df.columns:
+        df["SMA200"] = _sma(df["close"], 200)
+    if "RSI" not in df.columns:
+        df["RSI"] = _rsi(df["close"], 14)
+    if "MACD" not in df.columns or "MACD Signal" not in df.columns:
+        m, s, h = _macd(df["close"])
+        df["MACD"] = m
+        df["MACD Signal"] = s
+    
+    last_close = df["close"].iloc[-1]
+    sma20 = df["SMA20"].iloc[-1]
+    sma200 = df["SMA200"].iloc[-1]
+    rsi = df["RSI"].iloc[-1]
+    macd = df["MACD"].iloc[-1]
+    signal = df["MACD Signal"].iloc[-1]
+    
+    score = 0
+    reasons = []
+    
+    # 1. Trend (SMA20 vs SMA200)
+    if sma20 > sma200:
+        score += 1
+        reasons.append("Short-term trend is ABOVE long-term trend (Bullish)")
+    else:
+        score -= 1
+        reasons.append("Short-term trend is BELOW long-term trend (Bearish)")
+        
+    # 2. Momentum (RSI)
+    if rsi < 30:
+        score += 1
+        reasons.append("Price is Oversold (Potential Bounce)")
+    elif rsi > 70:
+        score -= 1
+        reasons.append("Price is Overbought (Potential Drop)")
+    else:
+        reasons.append("Momentum is Neutral")
+        
+    # 3. MACD
+    if macd > signal:
+        score += 1
+        reasons.append("MACD Momentum is Positive")
+    else:
+        score -= 1
+        reasons.append("MACD Momentum is Negative")
+        
+    # Determine final signal
+    signal_type = "NEUTRAL"
+    color = "#ffcc00"
+    
+    if score >= 2:
+        signal_type = "STRONG BUY"
+        color = "#00ff88"
+    elif score == 1:
+        signal_type = "BUY"
+        color = "#00cc66"
+    elif score == 0:
+        signal_type = "NEUTRAL"
+        color = "#ffcc00"
+    elif score == -1:
+        signal_type = "SELL"
+        color = "#ff6666"
+    else: # <= -2
+        signal_type = "STRONG SELL"
+        color = "#ff0000"
+        
+    # Calculate Trade Suggestion (ATR-based)
+    # Ensure ATR is calculated
+    if "ATR" not in df.columns:
+        atr_series = _atr(df, 14)
+        atr = atr_series.iloc[-1] if not atr_series.empty else 0
+    else:
+        atr = df["ATR"].iloc[-1]
+        
+    # Fallback if ATR is 0 or nan
+    if pd.isna(atr) or atr == 0:
+        atr = last_close * 0.02 # Default to 2%
+    
+    trade_suggestion = {
+        "side": "NEUTRAL",
+        "entry": last_close,
+        "stop_loss": 0.0,
+        "take_profit": 0.0,
+        "risk_reward": 0.0
+    }
+    
+    if score >= 1: # Bullish
+        stop_loss = last_close - (2.0 * atr)
+        take_profit = last_close + (3.0 * atr) # 1.5 R/R
+        trade_suggestion.update({
+            "side": "BUY",
+            "stop_loss": stop_loss,
+            "take_profit": take_profit,
+            "risk_reward": 1.5
+        })
+    elif score <= -1: # Bearish
+        stop_loss = last_close + (2.0 * atr)
+        take_profit = last_close - (3.0 * atr) # 1.5 R/R
+        trade_suggestion.update({
+            "side": "SELL",
+            "stop_loss": stop_loss,
+            "take_profit": take_profit,
+            "risk_reward": 1.5
+        })
+
+    return {
+        "signal": signal_type,
+        "score": score,
+        "reasons": reasons,
+        "color": color,
+        "trade_suggestion": trade_suggestion
+    }
+
+def generate_share_card_html(ticker, price, change_pct, signal_data):
+    """Generate HTML for a shareable card."""
+    color = signal_data["color"]
+    signal_text = signal_data["signal"]
+    
+    html = f"""
+    <div style="
+        width: 400px;
+        padding: 20px;
+        background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 100%);
+        border: 2px solid {color};
+        border-radius: 15px;
+        font-family: sans-serif;
+        color: white;
+        text-align: center;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    ">
+        <div style="font-size: 24px; font-weight: bold; margin-bottom: 10px; color: #b0b0b0;">TRADERQ ANALYSIS</div>
+        <div style="font-size: 48px; font-weight: 800; margin-bottom: 5px; color: #ffffff;">{ticker}</div>
+        <div style="font-size: 32px; font-weight: 600; margin-bottom: 20px; color: {'#00ff88' if change_pct >= 0 else '#ff0000'};">
+            ${price:,.2f} <span style="font-size: 20px;">({change_pct:+.2f}%)</span>
+        </div>
+        <div style="
+            background-color: {color}20;
+            border: 1px solid {color};
+            color: {color};
+            padding: 10px;
+            border-radius: 10px;
+            font-size: 28px;
+            font-weight: bold;
+            margin-bottom: 20px;
+        ">
+            {signal_text}
+        </div>
+        <div style="text-align: left; font-size: 14px; color: #cccccc; margin-bottom: 20px;">
+            {'<br>• '.join([''] + signal_data['reasons'])}
+        </div>
+        <div style="font-size: 12px; color: #666666;">Generated by TraderQ AI</div>
+    </div>
+    """
+    return html
 
 def send_email_alert(to_email: str, subject: str, body: str, config: dict) -> bool:
     """Send email alert using SMTP."""
@@ -2481,6 +3171,44 @@ def load_data(ticker: str, start: date, end: date, mode: str, interval: str = "1
             }).dropna()
     return df
 
+def add_cross_markers(fig: go.Figure, df: pd.DataFrame,
+                      price_col: str = "close",
+                      s20: str = "SMA20",
+                      s200: str = "SMA200",
+                      row: int = 1, col: int = 1) -> None:
+    """
+    Golden cross: 20 crosses above 200 (green triangle-up)
+    Death  cross: 20 crosses below 200 (red triangle-down)
+    Works if df has df[price_col], df[s20], df[s200].
+    """
+    if df is None or df.empty:
+        return
+    needed = (price_col, s20, s200)
+    if any(c not in df.columns for c in needed):
+        return
+    s_prev = df[s20].shift(1)
+    l_prev = df[s200].shift(1)
+    cross_up = (s_prev <= l_prev) & (df[s20] > df[s200])
+    cross_dn = (s_prev >= l_prev) & (df[s20] < df[s200])
+    xu, yu = df.index[cross_up], df.loc[cross_up, price_col]
+    xd, yd = df.index[cross_dn], df.loc[cross_dn, price_col]
+    if len(xu):
+        fig.add_trace(go.Scatter(
+            x=xu, y=yu, mode="markers", name="Golden Cross",
+            marker=dict(symbol="triangle-up", size=15, color="#17c964",
+                        line=dict(width=1, color="#0b3820")),
+            hovertemplate="Golden: %{x|%Y-%m-%d}<br>Price: %{y:.2f}<extra></extra>",
+            showlegend=True
+        ), row=row, col=col)
+    if len(xd):
+        fig.add_trace(go.Scatter(
+            x=xd, y=yd, mode="markers", name="Death Cross",
+            marker=dict(symbol="triangle-down", size=15, color="#f31260",
+                        line=dict(width=1, color="#4a0b19")),
+            hovertemplate="Death: %{x|%Y-%m-%d}<br>Price: %{y:.2f}<extra></extra>",
+            showlegend=True
+        ), row=row, col=col)
+
 # --- Chart builder ---
 def make_chart(df: pd.DataFrame, title: str, theme: str, pretouch_pct: float | None,
                show_volume: bool = True, show_rsi: bool = True, show_macd: bool = True,
@@ -3104,6 +3832,9 @@ def make_chart(df: pd.DataFrame, title: str, theme: str, pretouch_pct: float | N
         fig.add_hline(y=0, line_dash="dot", line_color=zero_line_color, opacity=0.3, row=row, col=1)
         fig.update_yaxes(title_text="MACD", row=row, col=1)
 
+    # Add cross markers (golden/death crosses)
+    add_cross_markers(fig, df, price_col="close", s20="SMA20", s200="SMA200", row=1, col=1)
+
     fig.update_layout(
         template=template,
         xaxis_rangeslider_visible=False,
@@ -3495,10 +4226,12 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # Main tabs
-tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs([
-    "📈 Tracker", "🔔 Alerts", "📊 Cross History", "💼 Portfolio", "🧪 Backtesting",
-    "📰 News", "📐 Patterns", "🔗 Correlation", "📝 Journal", "⚡ Signals", "🛡️ Risk"
+tab_easy, tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12 = st.tabs([
+    "🚦 Easy Mode", "📈 Tracker", "🔔 Alerts", "📊 Cross History", "💼 Portfolio", "🧪 Backtesting",
+    "📰 News", "📐 Patterns", "🔗 Correlation", "📝 Journal", "⚡ Signals", "🛡️ Risk", "🔷 Kraken"
 ])
+
+
 
 # Sidebar controls with professional styling
 st.sidebar.markdown("### ⚙️ Configuration")
@@ -3803,6 +4536,103 @@ if selected:
 
 # Safety: unique list
 selected = list(dict.fromkeys(selected))
+
+# ===== TAB EASY: EASY MODE =====
+with tab_easy:
+    st.header("🚦 Easy Mode")
+    st.markdown("Simple, clear signals without the noise.")
+    
+    # Ticker selection (reuse existing selection logic or simplified one)
+    # Use 'selected' if available (from sidebar), otherwise fallback to universe
+    easy_ticker_options = selected if selected else universe
+    easy_ticker = st.selectbox("Select Asset", easy_ticker_options, key="easy_ticker_select")
+    
+    if easy_ticker:
+        # Load data
+        df_easy = load_data(easy_ticker, start_d, end_d, mode, interval=interval, data_source=data_source)
+        
+        if not df_easy.empty:
+            # Calculate signal
+            signal_data = calculate_easy_mode_signal(df_easy)
+            
+            # Display Traffic Light
+            st.markdown(f"""
+            <div style="display: flex; justify-content: center; margin: 2rem 0;">
+                <div style="
+                    width: 200px;
+                    height: 200px;
+                    border-radius: 50%;
+                    background-color: {signal_data['color']};
+                    box-shadow: 0 0 50px {signal_data['color']};
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-size: 24px;
+                    font-weight: bold;
+                    color: black;
+                    text-align: center;
+                ">
+                    {signal_data['signal']}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # ELI5 Explanation
+            st.subheader("🧐 What does this mean?")
+            for reason in signal_data['reasons']:
+                st.info(f"• {reason}")
+                
+            # Quick Stats
+            last_price = df_easy["close"].iloc[-1]
+            prev_price = df_easy["close"].iloc[-2]
+            change_pct = ((last_price - prev_price) / prev_price) * 100
+            
+            st.subheader("📊 Quick Stats")
+            col1, col2 = st.columns(2)
+            col1.metric("Current Price", f"${last_price:,.2f}")
+            col2.metric("24h Change", f"{change_pct:+.2f}%", delta_color="normal")
+            
+            # Suggested Bracket Order
+            if "trade_suggestion" in signal_data and signal_data["trade_suggestion"]["side"] != "NEUTRAL":
+                st.divider()
+                st.subheader("🎯 Suggested Bracket Order")
+                s = signal_data["trade_suggestion"]
+                
+                # Determine colors
+                entry_color = "#00d4ff"
+                stop_color = "#f31260"
+                target_color = "#00ff88"
+                
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    st.markdown(f"**Entry ({s['side']})**")
+                    st.markdown(f"<h3 style='color: {entry_color}; margin:0'>${s['entry']:,.2f}</h3>", unsafe_allow_html=True)
+                
+                with c2:
+                    stop_pct = ((s['stop_loss'] - s['entry']) / s['entry']) * 100
+                    st.markdown("**Stop Loss**")
+                    st.markdown(f"<h3 style='color: {stop_color}; margin:0'>${s['stop_loss']:,.2f}</h3>", unsafe_allow_html=True)
+                    st.caption(f"{stop_pct:+.2f}%")
+                
+                with c3:
+                    target_pct = ((s['take_profit'] - s['entry']) / s['entry']) * 100
+                    st.markdown("**Take Profit**")
+                    st.markdown(f"<h3 style='color: {target_color}; margin:0'>${s['take_profit']:,.2f}</h3>", unsafe_allow_html=True)
+                    st.caption(f"{target_pct:+.2f}% (1.5 R/R)")
+                
+                st.info("💡 This suggestion uses a 2x ATR Stop Loss and 1.5 Risk/Reward Ratio.")
+
+            # Share Card
+            st.divider()
+            st.subheader("📸 Share Card")
+            share_html = generate_share_card_html(easy_ticker, last_price, change_pct, signal_data)
+            st.components.v1.html(share_html, height=450)
+            st.caption("Take a screenshot of the card above to share!")
+            
+        else:
+            st.warning("No data available for this ticker.")
+    else:
+        st.info("Select a ticker to see the Easy Mode analysis.")
 
 # ===== TAB 1: TRACKER =====
 with tab1:
@@ -5051,6 +5881,41 @@ with tab9:
         
         st.dataframe(journal_df, use_container_width=True, hide_index=True)
         
+        # Delete trade section
+        st.divider()
+        st.subheader("🗑️ Delete Trade")
+        if len(journal) > 0:
+            # Create a list of trade identifiers for selection
+            trade_options = []
+            for idx, trade in enumerate(journal):
+                trade_date = trade.get("date", "Unknown")
+                trade_ticker = trade.get("ticker", "Unknown")
+                trade_type = trade.get("type", "Unknown")
+                trade_price = trade.get("price", 0)
+                trade_shares = trade.get("shares", 0)
+                # Create a readable identifier
+                trade_label = f"{idx + 1}. {trade_date} - {trade_ticker} - {trade_type} - ${trade_price:.2f} x {trade_shares}"
+                trade_options.append((idx, trade_label))
+            
+            if trade_options:
+                selected_trade_idx = st.selectbox(
+                    "Select trade to delete:",
+                    options=[i for i, _ in trade_options],
+                    format_func=lambda x: trade_options[x][1],
+                    key="delete_trade_select"
+                )
+                
+                col1, col2 = st.columns([1, 4])
+                with col1:
+                    if st.button("🗑️ Delete Selected Trade", key="delete_trade_btn", type="primary"):
+                        if selected_trade_idx is not None and 0 <= selected_trade_idx < len(journal):
+                            deleted_trade = journal.pop(selected_trade_idx)
+                            save_trade_journal(journal)
+                            st.success(f"✅ Trade deleted: {deleted_trade.get('ticker', 'Unknown')} - {deleted_trade.get('date', 'Unknown')}")
+                            st.rerun()
+                        else:
+                            st.error("Invalid trade selection")
+        
         # Summary
         if len(journal) > 0:
             st.subheader("Summary")
@@ -5323,4 +6188,525 @@ with tab11:
                     st.error("❌ Poor")
         else:
             st.error("Invalid inputs")
+
+# ===== TAB 12: KRAKEN TRADING =====
+with tab12:
+    st.header("🔷 Kraken Trading")
+    st.markdown("Place and manage trades on Kraken exchange using API integration.")
+    st.warning("⚠️ **WARNING**: This feature allows you to place REAL trades with REAL money. Use with extreme caution!")
+    
+    # API Configuration
+    st.subheader("🔐 API Configuration")
+    kraken_config = load_kraken_config()
+    
+    with st.expander("Configure Kraken API Credentials", expanded=not kraken_config.get("api_key")):
+        st.info("💡 Get your API keys from: https://www.kraken.com/u/security/api")
+        st.info("🔒 API keys are stored locally in `.kraken_config.json` (not committed to git)")
+        
+        api_key = st.text_input(
+            "API Key",
+            value=kraken_config.get("api_key", ""),
+            type="password",
+            key="kraken_api_key",
+            help="Your Kraken API key"
+        )
+        api_secret = st.text_input(
+            "API Secret",
+            value=kraken_config.get("api_secret", ""),
+            type="password",
+            key="kraken_api_secret",
+            help="Your Kraken API secret (private key)"
+        )
+        
+        if st.button("Save API Credentials", key="save_kraken_config"):
+            if api_key and api_secret:
+                save_kraken_config({"api_key": api_key, "api_secret": api_secret})
+                st.success("✅ API credentials saved!")
+                st.rerun()
+            else:
+                st.error("Please enter both API key and secret")
+    
+    # Check SDK installation
+    try:
+        from kraken.spot import SpotClient, User, Trade
+        st.success("✅ Kraken SDK is installed")
+    except ImportError:
+        try:
+            import krakenex
+            st.success("✅ Kraken SDK (krakenex) is installed")
+        except ImportError:
+            st.error("❌ Kraken SDK not found. Please run: `pip install python-kraken-sdk`")
+    
+    # Initialize client
+    client = get_kraken_client()
+    
+    if client:
+        st.success("✅ Kraken API connected")
+        
+        # Balance Section
+        st.divider()
+        st.subheader("💰 Account Balance")
+        if st.button("Refresh Balance", key="refresh_balance"):
+            with st.spinner("Fetching balance..."):
+                balance_result = get_kraken_balance(client)
+                if "error" in balance_result:
+                    st.error(f"Error: {balance_result['error']}")
+                else:
+                    if "balance" in balance_result:
+                        balance_data = balance_result["balance"]
+                        # Display balances in a nice format
+                        if isinstance(balance_data, dict):
+                            # Filter out zero balances and show non-zero assets
+                            non_zero_balances = {k: v for k, v in balance_data.items() if float(v) > 0.0001}
+                            if non_zero_balances:
+                                cols = st.columns(min(4, len(non_zero_balances)))
+                                for idx, (asset, amount) in enumerate(non_zero_balances.items()):
+                                    with cols[idx % 4]:
+                                        st.metric(asset, f"{float(amount):.6f}")
+                            else:
+                                st.info("No non-zero balances found")
+        
+        # Open Orders Section
+        st.divider()
+        st.subheader("📋 Open Orders")
+        if st.button("Refresh Open Orders", key="refresh_orders"):
+            with st.spinner("Fetching open orders..."):
+                orders_result = get_kraken_open_orders(client)
+                if "error" in orders_result:
+                    st.error(f"Error: {orders_result['error']}")
+                else:
+                    if "orders" in orders_result:
+                        orders_data = orders_result["orders"]
+                        if orders_data and len(orders_data) > 0:
+                            st.dataframe(orders_data, use_container_width=True)
+                        else:
+                            st.info("No open orders")
+        
+        # Place Order Section
+        st.divider()
+        st.subheader("📊 Place New Order")
+        
+        # Get current ticker from sidebar if available
+        current_ticker = ""
+        if "selected" in st.session_state and st.session_state.get("selected"):
+            selected_list = st.session_state["selected"]
+            if isinstance(selected_list, list) and len(selected_list) > 0:
+                current_ticker = selected_list[0]
+            elif isinstance(selected_list, dict):
+                mode_val = st.session_state.get("saved_mode", "Stocks")
+                if mode_val in selected_list and len(selected_list[mode_val]) > 0:
+                    current_ticker = selected_list[mode_val][0]
+        
+        order_col1, order_col2 = st.columns(2)
+        with order_col1:
+            # Try to convert current ticker to Kraken pair
+            kraken_pair_input = st.text_input(
+                "Trading Pair",
+                value=convert_ticker_to_kraken_pair(current_ticker) if current_ticker else "XBTUSD",
+                placeholder="e.g., XBTUSD, ETHUSD",
+                key="kraken_pair",
+                help="Kraken trading pair (e.g., XBTUSD for Bitcoin, ETHUSD for Ethereum)"
+            )
+            
+            order_type = st.selectbox(
+                "Order Type",
+                ["buy", "sell"],
+                key="kraken_order_type"
+            )
+            
+            order_mode = st.selectbox(
+                "Order Mode",
+                ["market", "limit"],
+                key="kraken_order_mode",
+                help="Market: Execute immediately at current price. Limit: Set your desired price."
+            )
+        
+        with order_col2:
+            volume = st.number_input(
+                "Volume",
+                min_value=0.0,
+                value=0.01,
+                step=0.001,
+                format="%.6f",
+                key="kraken_volume",
+                help="Amount of base currency to buy/sell"
+            )
+            
+            limit_price = None
+            if order_mode == "limit":
+                limit_price = st.number_input(
+                    "Limit Price",
+                    min_value=0.0,
+                    value=0.0,
+                    step=0.01,
+                    format="%.2f",
+                    key="kraken_limit_price",
+                    help="Price at which to execute the limit order"
+                )
+            
+            dry_run_mode = st.checkbox(
+                "🔒 Dry Run Mode (Validate Only)",
+                value=True,
+                key="kraken_dry_run",
+                help="When enabled, validates order parameters without placing actual trade"
+            )
+        
+        # Safety warning
+        if not dry_run_mode:
+            st.error("⚠️ **REAL TRADE MODE**: This will place an ACTUAL trade with REAL money!")
+            confirm_trade = st.checkbox(
+                "I understand this is a real trade and I accept the risks",
+                key="confirm_real_trade"
+            )
+        else:
+            confirm_trade = True
+            st.info("🔒 Dry run mode: Order will be validated but not executed")
+        
+        col_btn1, col_btn2 = st.columns(2)
+        with col_btn1:
+            if st.button("📤 Place Order", key="place_kraken_order", type="primary", disabled=not confirm_trade):
+                if not kraken_pair_input:
+                    st.error("Please enter a trading pair")
+                elif volume <= 0:
+                    st.error("Volume must be greater than 0")
+                elif order_mode == "limit" and (limit_price is None or limit_price <= 0):
+                    st.error("Limit price required for limit orders")
+                else:
+                    with st.spinner("Placing order..."):
+                        result = place_kraken_order(
+                            client,
+                            pair=kraken_pair_input.upper(),
+                            type=order_type,
+                            ordertype=order_mode,
+                            volume=volume,
+                            price=limit_price,
+                            dry_run=dry_run_mode
+                        )
+                        
+                        if "error" in result:
+                            st.error(f"❌ Error: {result['error']}")
+                        else:
+                            if dry_run_mode:
+                                st.success(f"✅ {result.get('message', 'Order parameters validated')}")
+                            else:
+                                st.success("✅ Order placed successfully!")
+                                if "order" in result:
+                                    st.json(result["order"])
+        
+        with col_btn2:
+            if st.button("🔄 Test Connection", key="test_kraken_connection"):
+                with st.spinner("Testing connection..."):
+                    test_result = get_kraken_balance(client)
+                    if "error" in test_result:
+                        st.error(f"❌ Connection failed: {test_result['error']}")
+                    else:
+                        st.success("✅ Connection successful!")
+        
+        # Bracket Order Section
+        st.divider()
+        st.subheader("📊 Bracket Order (Entry + Stop-Loss + Take-Profit)")
+        st.markdown("Place a complete trade setup with automatic risk management.")
+        
+        bracket_col1, bracket_col2 = st.columns(2)
+        
+        with bracket_col1:
+            # Try to convert current ticker to Kraken pair
+            bracket_pair = st.text_input(
+                "Trading Pair",
+                value=convert_ticker_to_kraken_pair(current_ticker) if current_ticker else "XBTUSD",
+                placeholder="e.g., XBTUSD, ETHUSD",
+                key="bracket_pair",
+                help="Kraken trading pair"
+            )
+            
+            bracket_side = st.selectbox(
+                "Side",
+                ["buy", "sell"],
+                key="bracket_side"
+            )
+            
+            bracket_volume = st.number_input(
+                "Volume",
+                min_value=0.0,
+                value=0.001,
+                step=0.001,
+                format="%.6f",
+                key="bracket_volume",
+                help="Amount to trade"
+            )
+        
+        with bracket_col2:
+            bracket_entry_type = st.radio(
+                "Entry Type",
+                ["Market", "Limit"],
+                horizontal=True,
+                key="bracket_entry_type",
+                help="Market = immediate execution, Limit = execute at specific price"
+            )
+            
+            bracket_entry_price = None
+            if bracket_entry_type == "Limit":
+                bracket_entry_price = st.number_input(
+                    "Entry Price",
+                    min_value=0.0,
+                    value=50000.0,
+                    step=0.01,
+                    format="%.2f",
+                    key="bracket_entry_price",
+                    help="Price at which to enter the trade"
+                )
+            else:
+                st.info("Market order will execute at current market price")
+                # For market orders, we'll use a placeholder for validation display
+                bracket_entry_price = st.number_input(
+                    "Estimated Entry Price (for R/R calc)",
+                    min_value=0.0,
+                    value=50000.0,
+                    step=0.01,
+                    format="%.2f",
+                    key="bracket_entry_price_est",
+                    help="Estimated entry price for risk/reward calculation"
+                )
+        
+        # Stop-loss and Take-profit inputs
+        st.markdown("#### Risk Management Levels")
+        risk_col1, risk_col2 = st.columns(2)
+        
+        with risk_col1:
+            bracket_stop_loss = st.number_input(
+                "🛑 Stop-Loss Price",
+                min_value=0.0,
+                value=48000.0 if bracket_side == "buy" else 52000.0,
+                step=0.01,
+                format="%.2f",
+                key="bracket_stop_loss",
+                help="Price at which to exit if trade goes against you"
+            )
+        
+        with risk_col2:
+            bracket_take_profit = st.number_input(
+                "🎯 Take-Profit Price",
+                min_value=0.0,
+                value=55000.0 if bracket_side == "buy" else 45000.0,
+                step=0.01,
+                format="%.2f",
+                key="bracket_take_profit",
+                help="Price at which to take profits"
+            )
+        
+        # Validate prices and show feedback
+        if bracket_entry_price and bracket_stop_loss and bracket_take_profit:
+            validation = validate_bracket_prices(bracket_side, bracket_entry_price, bracket_stop_loss, bracket_take_profit)
+            
+            if validation["valid"]:
+                st.success("✅ Price levels are valid")
+                
+                # Calculate and display risk/reward metrics
+                metrics = calculate_bracket_metrics(bracket_entry_price, bracket_stop_loss, bracket_take_profit, bracket_volume)
+                
+                st.markdown("#### 📊 Risk/Reward Analysis")
+                metric_cols = st.columns(4)
+                
+                with metric_cols[0]:
+                    st.metric(
+                        "Risk",
+                        f"${metrics['total_risk']:.2f}",
+                        f"{metrics['risk_pct']:.2f}%",
+                        delta_color="inverse"
+                    )
+                
+                with metric_cols[1]:
+                    st.metric(
+                        "Reward",
+                        f"${metrics['total_reward']:.2f}",
+                        f"{metrics['reward_pct']:.2f}%"
+                    )
+                
+                with metric_cols[2]:
+                    rr_ratio = metrics['risk_reward_ratio']
+                    st.metric(
+                        "R/R Ratio",
+                        f"{rr_ratio:.2f}:1"
+                    )
+                
+                with metric_cols[3]:
+                    if rr_ratio >= 3:
+                        st.success("✅ Excellent")
+                    elif rr_ratio >= 2:
+                        st.success("✅ Good")
+                    elif rr_ratio >= 1:
+                        st.warning("⚠️ Acceptable")
+                    else:
+                        st.error("❌ Poor")
+                
+                # Visual price level indicator
+                with st.expander("📈 Price Level Visualization"):
+                    if bracket_side == "buy":
+                        st.markdown(f"""
+                        ```
+                        🎯 Take-Profit: ${bracket_take_profit:,.2f}  (+{metrics['reward_pct']:.2f}%)
+                                    ↑
+                        📍 Entry:       ${bracket_entry_price:,.2f}
+                                    ↓
+                        🛑 Stop-Loss:   ${bracket_stop_loss:,.2f}  (-{metrics['risk_pct']:.2f}%)
+                        ```
+                        """)
+                    else:
+                        st.markdown(f"""
+                        ```
+                        🛑 Stop-Loss:   ${bracket_stop_loss:,.2f}  (+{metrics['risk_pct']:.2f}%)
+                                    ↑
+                        📍 Entry:       ${bracket_entry_price:,.2f}
+                                    ↓
+                        🎯 Take-Profit: ${bracket_take_profit:,.2f}  (-{metrics['reward_pct']:.2f}%)
+                        ```
+                        """)
+            else:
+                st.error(f"❌ {validation['error']}")
+        
+        # Dry run and execution controls
+        st.divider()
+        bracket_dry_run = st.checkbox(
+            "🔒 Dry Run Mode (Validate Only)",
+            value=True,
+            key="bracket_dry_run",
+            help="When enabled, validates order parameters without placing actual trades"
+        )
+        
+        # Safety warning
+        if not bracket_dry_run:
+            st.error("⚠️ **REAL TRADE MODE**: This will place THREE ACTUAL trades with REAL money!")
+            bracket_confirm = st.checkbox(
+                "I understand this will place 3 real orders (entry, stop-loss, take-profit) and I accept the risks",
+                key="bracket_confirm_trade"
+            )
+        else:
+            bracket_confirm = True
+            st.info("🔒 Dry run mode: Orders will be validated but not executed")
+        
+        # Place bracket order button
+        bracket_btn_col1, bracket_btn_col2 = st.columns(2)
+        with bracket_btn_col1:
+            if st.button("📤 Place Bracket Order", key="place_bracket_order", type="primary", disabled=not bracket_confirm):
+                if not bracket_pair:
+                    st.error("Please enter a trading pair")
+                elif bracket_volume <= 0:
+                    st.error("Volume must be greater than 0")
+                elif bracket_entry_type == "Limit" and (not bracket_entry_price or bracket_entry_price <= 0):
+                    st.error("Entry price required for limit orders")
+                elif not bracket_stop_loss or bracket_stop_loss <= 0:
+                    st.error("Stop-loss price required")
+                elif not bracket_take_profit or bracket_take_profit <= 0:
+                    st.error("Take-profit price required")
+                else:
+                    # Use None for market orders
+                    final_entry_price = bracket_entry_price if bracket_entry_type == "Limit" else None
+                    
+                    with st.spinner("Placing bracket order..."):
+                        bracket_result = place_bracket_order(
+                            client,
+                            pair=bracket_pair.upper(),
+                            side=bracket_side,
+                            volume=bracket_volume,
+                            entry_price=final_entry_price,
+                            stop_loss_price=bracket_stop_loss,
+                            take_profit_price=bracket_take_profit,
+                            dry_run=bracket_dry_run
+                        )
+                        
+                        if "error" in bracket_result:
+                            st.error(f"❌ Error: {bracket_result['error']}")
+                        else:
+                            if bracket_dry_run:
+                                st.success(f"✅ {bracket_result.get('message', 'Bracket order validated')}")
+                                st.info(f"Entry: {bracket_result.get('entry_type', 'N/A')} | Stop-Loss: {bracket_result.get('stop_loss_type', 'N/A')} | Take-Profit: {bracket_result.get('take_profit_type', 'N/A')}")
+                            else:
+                                # Real order placed
+                                if bracket_result.get("success"):
+                                    st.success(f"✅ {bracket_result['message']}")
+                                    st.balloons() # 🎉 Victory Confetti!
+                                    
+                                    # Show order details
+                                    if bracket_result.get("entry_order"):
+                                        with st.expander("📝 Entry Order Details"):
+                                            st.json(bracket_result["entry_order"])
+                                    
+                                    if bracket_result.get("stop_loss_order"):
+                                        with st.expander("🛑 Stop-Loss Order Details"):
+                                            st.json(bracket_result["stop_loss_order"])
+                                    
+                                    if bracket_result.get("take_profit_order"):
+                                        with st.expander("🎯 Take-Profit Order Details"):
+                                            st.json(bracket_result["take_profit_order"])
+                                    
+                                    # Show any errors
+                                    if bracket_result.get("errors"):
+                                        st.warning("⚠️ Some orders had issues:")
+                                        for err in bracket_result["errors"]:
+                                            st.error(err)
+                                else:
+                                    st.error(f"❌ {bracket_result.get('message', 'Bracket order failed')}")
+                                    if bracket_result.get("errors"):
+                                        for err in bracket_result["errors"]:
+                                            st.error(err)
+        
+        with bracket_btn_col2:
+            if st.button("🔄 Reset Form", key="reset_bracket_form"):
+                st.rerun()
+        
+        # Order Management Section
+        st.divider()
+        st.subheader("🗑️ Cancel Orders")
+        cancel_txid = st.text_input(
+            "Order Transaction ID (TXID)",
+            placeholder="Enter TXID to cancel",
+            key="cancel_txid"
+        )
+        if st.button("Cancel Order", key="cancel_kraken_order"):
+            if not cancel_txid:
+                st.error("Please enter a transaction ID")
+            else:
+                with st.spinner("Cancelling order..."):
+                    cancel_result = cancel_kraken_order(client, cancel_txid)
+                    if "error" in cancel_result:
+                        st.error(f"❌ Error: {cancel_result['error']}")
+                    else:
+                        st.success("✅ Order cancelled successfully!")
+                        st.json(cancel_result.get("result", {}))
+        
+        # Help Section
+        st.divider()
+        with st.expander("ℹ️ Help & Information"):
+            st.markdown("""
+            **Trading Pair Format:**
+            - Kraken uses specific pair formats (e.g., XBTUSD for Bitcoin, ETHUSD for Ethereum)
+            - Common pairs: XBTUSD (Bitcoin), ETHUSD (Ethereum), ADAUSD (Cardano), SOLUSD (Solana)
+            
+            **Order Types:**
+            - **Market**: Executes immediately at current market price
+            - **Limit**: Executes only when price reaches your specified limit price
+            
+            **Safety Features:**
+            - Dry run mode validates orders without executing
+            - Confirmation required for real trades
+            - All API credentials stored locally
+            
+            **Important Notes:**
+            - Always test with small amounts first
+            - Double-check all order parameters before placing real trades
+            - Kraken may charge trading fees
+            - Order execution depends on market conditions and liquidity
+            """)
+            
+    else:
+        st.info("👆 Please configure your Kraken API credentials above to start trading")
+        st.markdown("""
+        **Getting Started:**
+        1. Log in to your Kraken account
+        2. Go to Security > API
+        3. Create a new API key with trading permissions
+        4. Copy the API Key and Private Key (API Secret)
+        5. Enter them in the configuration section above
+        6. Enable dry run mode to test without placing real trades
+        """)
 

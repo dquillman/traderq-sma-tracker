@@ -45,6 +45,7 @@ app.py.bak*
 .trade_journal.json
 .alert_history.json
 .email_config.json
+.kraken_config.json
 .claude/
 *.json.bak
 
