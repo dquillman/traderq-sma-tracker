@@ -1,0 +1,19 @@
+# Strict .gcloudignore
+# Ignore everything by default
+*
+
+# Allow only necessary files
+!app.py
+!requirements.txt
+!Procfile
+!firebase_auth.py
+!firebase_db.py
+!firebase_config.py
+!ui_glow_patch.py
+!yf_patch.py
+!public/
+!public/**
+!.firebaserc
+!firebase.json
+!.streamlit/
+!.streamlit/**

@@ -1,0 +1,29 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "alerts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "enabled", "order": "ASCENDING"},
+        {"fieldPath": "created", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "alertHistory",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "triggeredAt", "order": "DESCENDING"},
+        {"fieldPath": "ticker", "order": "ASCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "tradeJournal",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "date", "order": "DESCENDING"},
+        {"fieldPath": "status", "order": "ASCENDING"}
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

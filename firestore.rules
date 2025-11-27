@@ -1,0 +1,73 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper function: Check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Helper function: Check if user owns the document
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Users collection
+    match /users/{userId} {
+      // Users can read and write their own data
+      allow read, write: if isOwner(userId);
+
+      // Custom tickers subcollection
+      match /customTickers/{document=**} {
+        allow read, write: if isOwner(userId);
+      }
+
+      // Selected tickers subcollection
+      match /selectedTickers/{document=**} {
+        allow read, write: if isOwner(userId);
+      }
+
+      // Alerts subcollection
+      match /alerts/{alertId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      // Alert history subcollection
+      match /alertHistory/{historyId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId);
+        // No update or delete to preserve history integrity
+      }
+
+      // Portfolio subcollection
+      match /portfolio/{document=**} {
+        allow read, write: if isOwner(userId);
+      }
+
+      // Watchlists subcollection
+      match /watchlists/{watchlistName} {
+        allow read, write: if isOwner(userId);
+      }
+
+      // Trade journal subcollection
+      match /tradeJournal/{tradeId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      // Cross history subcollection
+      match /crossHistory/{ticker}/events/{eventId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      // Cross history documents (for direct ticker access)
+      match /crossHistory/{ticker} {
+        allow read, write: if isOwner(userId);
+      }
+    }
+
+    // Deny all other access
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

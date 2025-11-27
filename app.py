@@ -9,7 +9,7 @@ import math
 import time
 from datetime import date, datetime, timedelta
 from functools import lru_cache
-from pathlib import Path
+
 
 import numpy as np
 import pandas as pd
@@ -59,7 +59,12 @@ import streamlit as st
 import ui_glow_patch
 import yf_patch  # glow+session patch
 
-APP_VERSION = "v2.5.1"
+# Firebase imports
+from firebase_auth import require_authentication
+from firebase_db import FirestoreDB
+
+APP_VERSION = "v2.6.0"
+# v2.6.0 – Complete Firebase conversion: All data storage migrated to Firestore, multi-user support, cloud deployment ready
 # v2.5.0 – Added Extended MACD indicator with adjustable sideways detection (lookback bars and range threshold), flattens MACD during range-bound markets
 # v2.4.0 – Added Fair Value Gap indicator, indicator selection for AI Recommendations, trade parameter visualization (red risk/green reward zones)
 # v2.3.0 – Added Supertrend and EMA indicators, integrated Supertrend into AI Recommendations
@@ -73,116 +78,117 @@ DEFAULT_PERIOD_DAYS = 365 * 2  # 2 years for stocks; crypto API may cap to 365 i
 SMA_SHORT = 20
 SMA_LONG = 200
 
-# --- File paths for persistence ---
-CUSTOM_TICKERS_FILE = Path(__file__).parent / ".custom_tickers.json"
-ALERTS_FILE = Path(__file__).parent / ".alerts.json"
-PORTFOLIO_FILE = Path(__file__).parent / ".portfolio.json"
-CROSS_HISTORY_FILE = Path(__file__).parent / ".cross_history.json"
-WATCHLISTS_FILE = Path(__file__).parent / ".watchlists.json"
-TRADE_JOURNAL_FILE = Path(__file__).parent / ".trade_journal.json"
-ALERT_HISTORY_FILE = Path(__file__).parent / ".alert_history.json"
-EMAIL_CONFIG_FILE = Path(__file__).parent / ".email_config.json"
-KRAKEN_CONFIG_FILE = Path(__file__).parent / ".kraken_config.json"
+# Global variables for Firebase (initialized in main execution)
+auth = None
+user_id = None
+db = None
 
 def load_custom_tickers() -> dict:
-    """Load custom tickers from JSON file."""
-    if CUSTOM_TICKERS_FILE.exists():
-        try:
-            with open(CUSTOM_TICKERS_FILE, "r") as f:
-                data = json.load(f)
-                # Ensure both custom and selected keys exist
-                if "custom" not in data:
-                    data = {"custom": {"Stocks": [], "Crypto": []}, "selected": {"Stocks": [], "Crypto": []}}
-                if "selected" not in data:
-                    data["selected"] = {"Stocks": [], "Crypto": []}
-                return data
-        except Exception:
+    """Load custom tickers from Firestore."""
+    try:
+        # user_id and db are global variables set after authentication
+        if user_id is None or db is None:
             return {"custom": {"Stocks": [], "Crypto": []}, "selected": {"Stocks": [], "Crypto": []}}
-    return {"custom": {"Stocks": [], "Crypto": []}, "selected": {"Stocks": [], "Crypto": []}}
+        data = db.get_custom_tickers(user_id)
+        # Ensure both custom and selected keys exist
+        if "custom" not in data:
+            data["custom"] = {"Stocks": [], "Crypto": []}
+        if "selected" not in data:
+            data["selected"] = {"Stocks": [], "Crypto": []}
+        return data
+    except Exception:
+        return {"custom": {"Stocks": [], "Crypto": []}, "selected": {"Stocks": [], "Crypto": []}}
 
 def save_custom_tickers(data: dict):
-    """Save custom tickers to JSON file."""
+    """Save custom tickers to Firestore."""
     try:
-        with open(CUSTOM_TICKERS_FILE, "w") as f:
-            json.dump(data, f, indent=2)
-    except Exception:
-        pass
+        # user_id and db are global variables set after authentication
+        if user_id is None or db is None:
+            st.error("Not authenticated. Please log in.")
+            return
+        db.save_custom_tickers(user_id, data)
+    except Exception as e:
+        st.error(f"Failed to save custom tickers: {e}")
 
 # --- Alerts persistence ---
 def load_alerts() -> list:
-    """Load alerts from JSON file."""
-    if ALERTS_FILE.exists():
-        try:
-            with open(ALERTS_FILE, "r") as f:
-                return json.load(f)
-        except Exception:
+    """Load alerts from Firestore."""
+    try:
+        if user_id is None or db is None:
             return []
-    return []
+        return db.get_alerts(user_id)
+    except Exception:
+        return []
 
 def save_alerts(alerts: list):
-    """Save alerts to JSON file."""
+    """Save alerts to Firestore."""
     try:
-        with open(ALERTS_FILE, "w") as f:
-            json.dump(alerts, f, indent=2)
-    except Exception:
-        pass
+        if user_id is None or db is None:
+            st.error("Not authenticated. Please log in.")
+            return
+        db.save_alerts(user_id, alerts)
+    except Exception as e:
+        st.error(f"Failed to save alerts: {e}")
 
 # --- Portfolio persistence ---
 def load_portfolio() -> dict:
-    """Load portfolio from JSON file."""
-    if PORTFOLIO_FILE.exists():
-        try:
-            with open(PORTFOLIO_FILE, "r") as f:
-                return json.load(f)
-        except Exception:
+    """Load portfolio from Firestore."""
+    try:
+        if user_id is None or db is None:
             return {"tickers": [], "weights": {}}
-    return {"tickers": [], "weights": {}}
+        return db.get_portfolio(user_id)
+    except Exception:
+        return {"tickers": [], "weights": {}}
 
 def save_portfolio(portfolio: dict):
-    """Save portfolio to JSON file."""
+    """Save portfolio to Firestore."""
     try:
-        with open(PORTFOLIO_FILE, "w") as f:
-            json.dump(portfolio, f, indent=2)
-    except Exception:
-        pass
+        if user_id is None or db is None:
+            st.error("Not authenticated. Please log in.")
+            return
+        db.save_portfolio(user_id, portfolio)
+    except Exception as e:
+        st.error(f"Failed to save portfolio: {e}")
 
 # --- Cross history persistence ---
 def load_cross_history() -> dict:
-    """Load cross history from JSON file."""
-    if CROSS_HISTORY_FILE.exists():
-        try:
-            with open(CROSS_HISTORY_FILE, "r") as f:
-                return json.load(f)
-        except Exception:
+    """Load cross history from Firestore."""
+    try:
+        if user_id is None or db is None:
             return {}
-    return {}
+        return db.get_cross_history(user_id)
+    except Exception:
+        return {}
 
 def save_cross_history(history: dict):
-    """Save cross history to JSON file."""
+    """Save cross history to Firestore."""
     try:
-        with open(CROSS_HISTORY_FILE, "w") as f:
-            json.dump(history, f, indent=2, default=str)
-    except Exception:
-        pass
+        if user_id is None or db is None:
+            st.error("Not authenticated. Please log in.")
+            return
+        db.save_cross_history(user_id, history)
+    except Exception as e:
+        st.error(f"Failed to save cross history: {e}")
 
 # --- Watchlists persistence ---
 def load_watchlists() -> dict:
-    """Load watchlists from JSON file."""
-    if WATCHLISTS_FILE.exists():
-        try:
-            with open(WATCHLISTS_FILE, "r") as f:
-                return json.load(f)
-        except Exception:
+    """Load watchlists from Firestore."""
+    try:
+        if user_id is None or db is None:
             return {}
-    return {}
+        return db.get_watchlists(user_id)
+    except Exception:
+        return {}
 
 def save_watchlists(watchlists: dict):
-    """Save watchlists to JSON file."""
+    """Save watchlists to Firestore."""
     try:
-        with open(WATCHLISTS_FILE, "w") as f:
-            json.dump(watchlists, f, indent=2)
-    except Exception:
-        pass
+        if user_id is None or db is None:
+            st.error("Not authenticated. Please log in.")
+            return
+        db.save_watchlists(user_id, watchlists)
+    except Exception as e:
+        st.error(f"Failed to save watchlists: {e}")
 
 # --- Performance Metrics ---
 def calculate_performance_metrics(df: pd.DataFrame) -> dict:
@@ -228,41 +234,43 @@ def calculate_performance_metrics(df: pd.DataFrame) -> dict:
 
 # --- Email Configuration & Alerts ---
 def load_email_config() -> dict:
-    """Load email configuration from JSON file."""
-    if EMAIL_CONFIG_FILE.exists():
-        try:
-            with open(EMAIL_CONFIG_FILE, "r") as f:
-                return json.load(f)
-        except Exception:
+    """Load email configuration from Firestore."""
+    try:
+        if user_id is None or db is None:
             return {}
-    return {}
+        return db.get_email_config(user_id)
+    except Exception:
+        return {}
 
 def save_email_config(config: dict):
-    """Save email configuration to JSON file."""
+    """Save email configuration to Firestore."""
     try:
-        with open(EMAIL_CONFIG_FILE, "w") as f:
-            json.dump(config, f, indent=2)
-    except Exception:
-        pass
+        if user_id is None or db is None:
+            st.error("Not authenticated. Please log in.")
+            return
+        db.save_email_config(user_id, config)
+    except Exception as e:
+        st.error(f"Failed to save email config: {e}")
 
 # --- Kraken API Configuration ---
 def load_kraken_config() -> dict:
-    """Load Kraken API configuration from JSON file."""
-    if KRAKEN_CONFIG_FILE.exists():
-        try:
-            with open(KRAKEN_CONFIG_FILE, "r") as f:
-                return json.load(f)
-        except Exception:
+    """Load Kraken API configuration from Firestore."""
+    try:
+        if user_id is None or db is None:
             return {}
-    return {}
+        return db.get_kraken_config(user_id)
+    except Exception:
+        return {}
 
 def save_kraken_config(config: dict):
-    """Save Kraken API configuration to JSON file."""
+    """Save Kraken API configuration to Firestore."""
     try:
-        with open(KRAKEN_CONFIG_FILE, "w") as f:
-            json.dump(config, f, indent=2)
-    except Exception:
-        pass
+        if user_id is None or db is None:
+            st.error("Not authenticated. Please log in.")
+            return
+        db.save_kraken_config(user_id, config)
+    except Exception as e:
+        st.error(f"Failed to save Kraken config: {e}")
 
 # --- Kraken API Functions ---
 def get_kraken_client(api_key: str = None, api_secret: str = None):
@@ -966,41 +974,46 @@ def send_email_alert(to_email: str, subject: str, body: str, config: dict) -> bo
         return False
 
 def load_alert_history() -> list:
-    """Load alert history from JSON file."""
-    if ALERT_HISTORY_FILE.exists():
-        try:
-            with open(ALERT_HISTORY_FILE, "r") as f:
-                return json.load(f)
-        except Exception:
+    """Load alert history from Firestore."""
+    try:
+        if user_id is None or db is None:
             return []
-    return []
+        return db.get_alert_history(user_id, limit=1000)
+    except Exception:
+        return []
 
 def save_alert_history(history: list):
-    """Save alert history to JSON file."""
+    """Save alert history to Firestore."""
     try:
-        with open(ALERT_HISTORY_FILE, "w") as f:
-            json.dump(history, f, indent=2, default=str)
-    except Exception:
-        pass
+        if user_id is None or db is None:
+            st.error("Not authenticated. Please log in.")
+            return
+        # Clear existing history and add all items
+        # Note: For better performance, consider using add_alert_history for individual items
+        for item in history:
+            db.add_alert_history(user_id, item)
+    except Exception as e:
+        st.error(f"Failed to save alert history: {e}")
 
 # --- Trade Journal ---
 def load_trade_journal() -> list:
-    """Load trade journal from JSON file."""
-    if TRADE_JOURNAL_FILE.exists():
-        try:
-            with open(TRADE_JOURNAL_FILE, "r") as f:
-                return json.load(f)
-        except Exception:
+    """Load trade journal from Firestore."""
+    try:
+        if user_id is None or db is None:
             return []
-    return []
+        return db.get_trade_journal(user_id)
+    except Exception:
+        return []
 
 def save_trade_journal(journal: list):
-    """Save trade journal to JSON file."""
+    """Save trade journal to Firestore."""
     try:
-        with open(TRADE_JOURNAL_FILE, "w") as f:
-            json.dump(journal, f, indent=2, default=str)
-    except Exception:
-        pass
+        if user_id is None or db is None:
+            st.error("Not authenticated. Please log in.")
+            return
+        db.save_trade_journal(user_id, journal)
+    except Exception as e:
+        st.error(f"Failed to save trade journal: {e}")
 
 # --- Fair Value Gap Detection ---
 def find_fair_value_gaps(df: pd.DataFrame) -> list:
@@ -4210,6 +4223,17 @@ st.markdown("""
 """, unsafe_allow_html=True)
 ui_glow_patch.apply()  # apply glow after set_page_config
 
+# ============================================================================
+# Firebase Authentication - Require login before app access
+# ============================================================================
+auth = require_authentication()  # This will show login UI if not authenticated
+user_id = auth.get_user_id()
+user_email = auth.get_user_email()
+display_name = auth.get_display_name()
+
+# Initialize Firestore DB
+db = FirestoreDB()
+
 # Professional header
 st.markdown(f"""
 <div style="text-align: center; padding: 2rem 0; background: linear-gradient(135deg, rgba(0, 212, 255, 0.1) 0%, rgba(0, 153, 204, 0.1) 100%); border-radius: 12px; margin-bottom: 2rem; border: 1px solid rgba(0, 212, 255, 0.3);">
@@ -4234,6 +4258,20 @@ tab_easy, tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, ta
 
 
 # Sidebar controls with professional styling
+# User profile section
+st.sidebar.markdown(f"""
+<div style="background: linear-gradient(135deg, rgba(0, 212, 255, 0.1) 0%, rgba(0, 153, 204, 0.1) 100%); padding: 1rem; border-radius: 8px; margin-bottom: 1rem; border: 1px solid rgba(0, 212, 255, 0.3);">
+    <div style="color: #00d4ff; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.3rem;">👤 Logged in as</div>
+    <div style="color: #ffffff; font-size: 1rem; font-weight: 500;">{display_name}</div>
+    <div style="color: #b0b0b0; font-size: 0.75rem; margin-top: 0.2rem;">{user_email}</div>
+</div>
+""", unsafe_allow_html=True)
+
+if st.sidebar.button("🚪 Logout", use_container_width=True):
+    auth.logout()
+    st.rerun()
+
+st.sidebar.markdown("---")
 st.sidebar.markdown("### ⚙️ Configuration")
 
 # Initialize and restore mode from session state
@@ -6201,7 +6239,7 @@ with tab12:
     
     with st.expander("Configure Kraken API Credentials", expanded=not kraken_config.get("api_key")):
         st.info("💡 Get your API keys from: https://www.kraken.com/u/security/api")
-        st.info("🔒 API keys are stored locally in `.kraken_config.json` (not committed to git)")
+        st.info("🔒 API keys are stored securely in Firebase Firestore (encrypted and user-specific)")
         
         api_key = st.text_input(
             "API Key",
@@ -6689,7 +6727,7 @@ with tab12:
             **Safety Features:**
             - Dry run mode validates orders without executing
             - Confirmation required for real trades
-            - All API credentials stored locally
+            - All API credentials stored securely in Firebase Firestore
             
             **Important Notes:**
             - Always test with small amounts first

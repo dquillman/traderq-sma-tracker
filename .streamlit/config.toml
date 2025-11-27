@@ -1,0 +1,25 @@
+# Streamlit configuration for Cloud Run deployment
+
+[server]
+# Cloud Run will set the PORT environment variable
+# Default to 8080 if not set
+port = 8080
+address = "0.0.0.0"
+headless = true
+enableCORS = false
+enableXsrfProtection = true
+
+[browser]
+serverAddress = "0.0.0.0"
+gatherUsageStats = false
+serverPort = 8080
+
+[theme]
+# Default theme (users can override)
+primaryColor = "#1f77b4"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F0F2F6"
+textColor = "#262730"
+
+[logger]
+level = "info"
