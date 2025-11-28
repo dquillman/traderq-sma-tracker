@@ -42,20 +42,20 @@ class FirebaseAuth:
 
         self.db = firestore.client()
 
-        # Lazy import streamlit
-        st = _get_streamlit()
+        # Lazy import streamlit and store it for use in methods
+        self.st = _get_streamlit()
         
         # Initialize session state if not exists
-        if 'authenticated' not in st.session_state:
-            st.session_state['authenticated'] = False
-        if 'user_id' not in st.session_state:
-            st.session_state['user_id'] = None
-        if 'user_email' not in st.session_state:
-            st.session_state['user_email'] = None
-        if 'display_name' not in st.session_state:
-            st.session_state['display_name'] = None
-        if 'auth_timestamp' not in st.session_state:
-            st.session_state['auth_timestamp'] = None
+        if 'authenticated' not in self.st.session_state:
+            self.st.session_state['authenticated'] = False
+        if 'user_id' not in self.st.session_state:
+            self.st.session_state['user_id'] = None
+        if 'user_email' not in self.st.session_state:
+            self.st.session_state['user_email'] = None
+        if 'display_name' not in self.st.session_state:
+            self.st.session_state['display_name'] = None
+        if 'auth_timestamp' not in self.st.session_state:
+            self.st.session_state['auth_timestamp'] = None
 
     def signup(self, email: str, password: str, display_name: str) -> Dict:
         """
@@ -175,11 +175,11 @@ class FirebaseAuth:
 
     def logout(self):
         """Clear authentication session"""
-        st.session_state['authenticated'] = False
-        st.session_state['user_id'] = None
-        st.session_state['user_email'] = None
-        st.session_state['display_name'] = None
-        st.session_state['auth_timestamp'] = None
+        self.st.session_state['authenticated'] = False
+        self.st.session_state['user_id'] = None
+        self.st.session_state['user_email'] = None
+        self.st.session_state['display_name'] = None
+        self.st.session_state['auth_timestamp'] = None
 
     def is_authenticated(self) -> bool:
         """
@@ -188,6 +188,7 @@ class FirebaseAuth:
         Returns:
             True if authenticated, False otherwise
         """
+        st = self.st
         # Check if session exists and hasn't expired (24 hour timeout)
         if not st.session_state.get('authenticated', False):
             return False
@@ -209,7 +210,7 @@ class FirebaseAuth:
             User ID if authenticated, None otherwise
         """
         if self.is_authenticated():
-            return st.session_state.get('user_id')
+            return self.st.session_state.get('user_id')
         return None
 
     def get_user_email(self) -> Optional[str]:
@@ -220,7 +221,7 @@ class FirebaseAuth:
             Email if authenticated, None otherwise
         """
         if self.is_authenticated():
-            return st.session_state.get('user_email')
+            return self.st.session_state.get('user_email')
         return None
 
     def get_display_name(self) -> Optional[str]:
@@ -231,7 +232,7 @@ class FirebaseAuth:
             Display name if authenticated, None otherwise
         """
         if self.is_authenticated():
-            return st.session_state.get('display_name')
+            return self.st.session_state.get('display_name')
         return None
 
     def require_auth(self):
@@ -244,12 +245,13 @@ class FirebaseAuth:
         """
         if not self.is_authenticated():
             self._show_login_ui()
-            st.stop()  # Stop execution until authenticated
+            self.st.stop()  # Stop execution until authenticated
             return False
         return True
 
     def _show_login_ui(self):
         """Display login/signup UI (internal method)"""
+        st = self.st
         st.title("🔐 TraderQ Login")
 
         tab1, tab2 = st.tabs(["Login", "Sign Up"])
@@ -351,7 +353,7 @@ class FirebaseAuth:
             })
 
             # Update session state
-            st.session_state['display_name'] = new_name
+            self.st.session_state['display_name'] = new_name
 
             return {"success": True, "message": "Display name updated successfully"}
 
