@@ -4047,8 +4047,11 @@ except Exception as e:
     traceback.print_exc(file=sys.stderr)
     sys.stderr.flush()
     # If set_page_config fails, we're in trouble - show error and stop
-    st.error(f"⚠️ Failed to initialize Streamlit: {e}")
-    st.stop()
+    try:
+        st.error(f"⚠️ Failed to initialize Streamlit: {e}")
+        st.stop()
+    except:
+        pass
 
 # CRITICAL: Show a simple message immediately to prove app is running
 # This helps Streamlit Cloud health checks pass
