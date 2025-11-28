@@ -28,10 +28,12 @@ class FirebaseAuth:
                 creds_path = get_firebase_credentials()
                 cred = credentials.Certificate(creds_path)
                 firebase_admin.initialize_app(cred)
+            except FileNotFoundError:
+                # Re-raise FileNotFoundError as-is (will be handled in app.py)
+                raise
             except Exception as e:
-                st.error(f"Failed to initialize Firebase: {e}")
-                st.error("Please check FIREBASE_SETUP.md for setup instructions.")
-                st.stop()
+                # Re-raise other exceptions to be handled upstream
+                raise RuntimeError(f"Firebase initialization failed: {e}") from e
 
         self.db = firestore.client()
 

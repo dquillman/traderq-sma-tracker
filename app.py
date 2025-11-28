@@ -4226,7 +4226,7 @@ ui_glow_patch.apply()  # apply glow after set_page_config
 # ============================================================================
 # Firebase Authentication - Require login before app access
 # ============================================================================
-# Initialize Firebase with proper error handling
+# Initialize Firebase with proper error handling - make it non-blocking
 try:
     # Use global keyword to update module-level variables
     global auth, user_id, db
@@ -4239,14 +4239,41 @@ try:
     # Initialize Firestore DB
     db = FirestoreDB()
     
+except FileNotFoundError as e:
+    # Firebase secrets not configured - show helpful error but don't crash
+    st.error("🔥 **Firebase Configuration Missing**")
+    st.error("The app requires Firebase to be configured for cloud deployment.")
+    st.info("""
+    **To fix this:**
+    
+    1. Go to your Firebase Console: https://console.firebase.google.com/
+    2. Download your service account key (Project Settings → Service Accounts)
+    3. Run `python convert_key_to_toml.py` locally
+    4. Copy the contents of `.streamlit_secrets_toml.txt`
+    5. Go to Streamlit Cloud → Your App → Settings → Secrets
+    6. Paste the TOML content and save
+    
+    **Error:** `{}`
+    """.format(str(e)))
+    st.stop()
+    
 except Exception as e:
-    st.error(f"🔥 Firebase Initialization Error: {str(e)}")
-    st.error("Please check:")
-    st.error("1. Firebase secrets are configured in Streamlit Cloud")
-    st.error("2. Service account key is valid")
-    st.error("3. Firebase project is set up correctly")
+    # Other Firebase errors - log but don't crash on health check
+    error_msg = str(e)
+    st.error(f"🔥 **Firebase Initialization Error**")
+    st.error(f"**Error:** {error_msg}")
+    st.info("""
+    **Possible causes:**
+    1. Firebase secrets are misconfigured in Streamlit Cloud
+    2. Service account key is invalid or expired
+    3. Firebase project permissions issue
+    4. Network connectivity issue
+    
+    **Check your Streamlit Cloud secrets at:**
+    https://share.streamlit.io → Your App → Settings → Secrets
+    """)
     import traceback
-    with st.expander("Error Details"):
+    with st.expander("📋 Technical Error Details"):
         st.code(traceback.format_exc())
     st.stop()
 
