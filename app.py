@@ -4257,12 +4257,26 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+sys.stderr.write("AFTER CSS - before glow patch\n")
+sys.stderr.flush()
+
 # Apply glow patch if available
 if ui_glow_patch is not None:
     try:
+        sys.stderr.write("Applying glow patch...\n")
+        sys.stderr.flush()
         ui_glow_patch.apply()  # apply glow after set_page_config
+        sys.stderr.write("Glow patch applied successfully\n")
+        sys.stderr.flush()
     except Exception as e:
-        print(f"Warning: Could not apply ui_glow_patch: {e}", file=sys.stderr)
+        sys.stderr.write(f"Warning: Could not apply ui_glow_patch: {e}\n")
+        sys.stderr.flush()
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        sys.stderr.flush()
+else:
+    sys.stderr.write("ui_glow_patch is None, skipping\n")
+    sys.stderr.flush()
 
 # ============================================================================
 # Firebase Authentication - Require login before app access
