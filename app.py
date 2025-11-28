@@ -59,9 +59,10 @@ import streamlit as st
 import ui_glow_patch
 import yf_patch  # glow+session patch
 
-# Firebase imports
-from firebase_auth import require_authentication
-from firebase_db import FirestoreDB
+# Firebase imports - lazy loaded to avoid import-time errors
+# These will be imported only when needed, after st.set_page_config
+firebase_auth = None
+firebase_db = None
 
 APP_VERSION = "v2.6.0"
 # v2.6.0 – Complete Firebase conversion: All data storage migrated to Firestore, multi-user support, cloud deployment ready
@@ -4226,8 +4227,12 @@ ui_glow_patch.apply()  # apply glow after set_page_config
 # ============================================================================
 # Firebase Authentication - Require login before app access
 # ============================================================================
-# Initialize Firebase with proper error handling - make it non-blocking
+# Lazy import Firebase modules (after st.set_page_config)
 try:
+    # Import here to avoid import-time errors
+    from firebase_auth import require_authentication
+    from firebase_db import FirestoreDB
+    
     # Use global keyword to update module-level variables
     global auth, user_id, db
     
