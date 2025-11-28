@@ -2,14 +2,13 @@
 # v1.4.8
 # Single-file Streamlit app with clean SMA logic, pretouch screener, cross markers,
 # crypto fallback, and trend chips (Bullish/Bearish) without emoji.
+from __future__ import annotations
 
 # CRITICAL: Write to stderr immediately to track startup
 import sys
 sys.stderr.write("=" * 70 + "\n")
 sys.stderr.write("APP.PY: Starting imports...\n")
 sys.stderr.flush()
-
-from __future__ import annotations
 
 sys.stderr.write("✓ __future__ imported\n")
 sys.stderr.flush()
