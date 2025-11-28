@@ -4233,6 +4233,9 @@ ui_glow_patch.apply()  # apply glow after set_page_config
 # ============================================================================
 # Firebase Authentication - Require login before app access
 # ============================================================================
+# Show a simple status message first to ensure the app is responding
+st.info("🔄 Initializing Firebase authentication...")
+
 # Lazy import Firebase modules (after st.set_page_config)
 # Wrap in outer try-catch to ensure we always show something useful
 try:
@@ -4252,10 +4255,14 @@ try:
         # Initialize Firestore DB
         db = FirestoreDB()
         
+        # Clear the status message since we succeeded
+        st.empty()
+        
     except FileNotFoundError as e:
         # Firebase secrets not configured - show helpful error but don't crash
         st.error("🔥 **Firebase Configuration Missing**")
         st.error("The app requires Firebase to be configured for cloud deployment.")
+        st.error(f"**Error:** `{str(e)}`")
         st.info("""
         **To fix this:**
         
@@ -4266,14 +4273,15 @@ try:
         5. Go to Streamlit Cloud → Your App → Settings → Secrets
         6. Paste the TOML content and save
         
-        **Error:** `{}`
-        """.format(str(e)))
+        **Important:** After saving secrets, wait 2-3 minutes for the app to redeploy.
+        """)
         st.stop()
         
     except Exception as e:
         # Other Firebase errors - log but don't crash on health check
         error_msg = str(e)
-        st.error(f"🔥 **Firebase Initialization Error**")
+        error_type = type(e).__name__
+        st.error(f"🔥 **Firebase Initialization Error** ({error_type})")
         st.error(f"**Error:** {error_msg}")
         st.info("""
         **Possible causes:**
@@ -4292,8 +4300,9 @@ try:
 
 except Exception as outer_e:
     # Ultimate fallback - catch ANY error during startup
-    st.error("💥 **Critical Startup Error**")
-    st.error("The app encountered an unexpected error during initialization.")
+    error_type = type(outer_e).__name__
+    st.error(f"💥 **Critical Startup Error** ({error_type})")
+    st.error(f"The app encountered an unexpected error: {str(outer_e)}")
     import traceback
     with st.expander("📋 Full Error Traceback"):
         st.code(traceback.format_exc())
