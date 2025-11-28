@@ -25,19 +25,37 @@ def get_firebase_credentials() -> str:
         FileNotFoundError: If credentials are not found in either location
     """
     # Check if running on Streamlit Cloud (secrets are available)
-    if hasattr(st, 'secrets') and 'firebase' in st.secrets:
+    if hasattr(st, 'secrets') and st.secrets and 'firebase' in st.secrets:
         # Running on Streamlit Cloud - use secrets
         try:
-            creds_dict = dict(st.secrets['firebase'])
+            firebase_secrets = st.secrets['firebase']
+            creds_dict = dict(firebase_secrets)
+            
+            # Validate required fields
+            required_fields = ['type', 'project_id', 'private_key', 'client_email']
+            missing_fields = [f for f in required_fields if f not in creds_dict or not creds_dict[f]]
+            if missing_fields:
+                raise ValueError(f"Missing required Firebase credential fields: {', '.join(missing_fields)}")
 
             # Create a temporary file with the credentials
             # tempfile.NamedTemporaryFile with delete=False keeps the file after closing
-            with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as f:
-                json.dump(creds_dict, f)
+            with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json', encoding='utf-8') as f:
+                json.dump(creds_dict, f, ensure_ascii=False, indent=2)
                 temp_path = f.name
 
             return temp_path
 
+        except KeyError as e:
+            raise FileNotFoundError(
+                f"Firebase secrets not found in Streamlit secrets. Missing key: {e}\n"
+                "Please configure Firebase secrets at: "
+                "https://share.streamlit.io → Your App → Settings → Secrets\n"
+                "Expected format:\n"
+                "[firebase]\n"
+                "type = \"service_account\"\n"
+                "project_id = \"your-project-id\"\n"
+                "..."
+            )
         except Exception as e:
             raise FileNotFoundError(
                 f"Failed to read Firebase credentials from Streamlit secrets: {e}\n"

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 Convert Firebase serviceAccountKey.json to Streamlit secrets TOML format
 Run this script to generate the TOML configuration for Streamlit Cloud
@@ -7,6 +8,12 @@ Run this script to generate the TOML configuration for Streamlit Cloud
 import json
 import sys
 from pathlib import Path
+
+# Fix Windows console encoding for emojis
+if sys.platform == 'win32':
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 
 def convert_to_toml(json_path: str = "serviceAccountKey.json"):
@@ -21,7 +28,7 @@ def convert_to_toml(json_path: str = "serviceAccountKey.json"):
 
     # Load JSON file
     try:
-        with open(json_path, 'r') as f:
+        with open(json_path, 'r', encoding='utf-8') as f:
             creds = json.load(f)
     except Exception as e:
         print(f"❌ Error reading {json_path}: {e}")
@@ -46,7 +53,7 @@ client_x509_cert_url = "{creds.get('client_x509_cert_url', '')}"
 
     # Save to file
     output_file = ".streamlit_secrets_toml.txt"
-    with open(output_file, 'w') as f:
+    with open(output_file, 'w', encoding='utf-8') as f:
         f.write(toml_output)
 
     print("✅ Conversion successful!")

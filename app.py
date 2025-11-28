@@ -4226,13 +4226,29 @@ ui_glow_patch.apply()  # apply glow after set_page_config
 # ============================================================================
 # Firebase Authentication - Require login before app access
 # ============================================================================
-auth = require_authentication()  # This will show login UI if not authenticated
-user_id = auth.get_user_id()
-user_email = auth.get_user_email()
-display_name = auth.get_display_name()
-
-# Initialize Firestore DB
-db = FirestoreDB()
+# Initialize Firebase with proper error handling
+try:
+    # Use global keyword to update module-level variables
+    global auth, user_id, db
+    
+    auth = require_authentication()  # This will show login UI if not authenticated
+    user_id = auth.get_user_id()
+    user_email = auth.get_user_email()
+    display_name = auth.get_display_name()
+    
+    # Initialize Firestore DB
+    db = FirestoreDB()
+    
+except Exception as e:
+    st.error(f"🔥 Firebase Initialization Error: {str(e)}")
+    st.error("Please check:")
+    st.error("1. Firebase secrets are configured in Streamlit Cloud")
+    st.error("2. Service account key is valid")
+    st.error("3. Firebase project is set up correctly")
+    import traceback
+    with st.expander("Error Details"):
+        st.code(traceback.format_exc())
+    st.stop()
 
 # Professional header
 st.markdown(f"""
