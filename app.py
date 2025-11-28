@@ -56,8 +56,19 @@ def add_cross_markers(fig: go.Figure, df: pd.DataFrame,
 
 
 import streamlit as st
-import ui_glow_patch
-import yf_patch  # glow+session patch
+
+# Import patches - wrap in try/except to prevent crashes
+try:
+    import ui_glow_patch
+except Exception as e:
+    print(f"Warning: Could not import ui_glow_patch: {e}", file=sys.stderr)
+    ui_glow_patch = None
+
+try:
+    import yf_patch  # glow+session patch
+except Exception as e:
+    print(f"Warning: Could not import yf_patch: {e}", file=sys.stderr)
+    yf_patch = None
 
 # Firebase imports - lazy loaded to avoid import-time errors
 # These will be imported only when needed, after st.set_page_config
@@ -4228,7 +4239,13 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
-ui_glow_patch.apply()  # apply glow after set_page_config
+
+# Apply glow patch if available
+if ui_glow_patch is not None:
+    try:
+        ui_glow_patch.apply()  # apply glow after set_page_config
+    except Exception as e:
+        print(f"Warning: Could not apply ui_glow_patch: {e}", file=sys.stderr)
 
 # ============================================================================
 # Firebase Authentication - Require login before app access
