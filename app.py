@@ -3972,12 +3972,18 @@ def build_screener(tickers: list[str], start: date, end: date, mode: str, pretou
     return df
 
 # --- UI ---
-st.set_page_config(
-    page_title="TraderQ - Professional Trading Analytics",
-    page_icon="📈",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+# Wrap everything in error handling to catch any startup crashes
+try:
+    st.set_page_config(
+        page_title="TraderQ - Professional Trading Analytics",
+        page_icon="📈",
+        layout="wide",
+        initial_sidebar_state="expanded"
+    )
+except Exception as e:
+    # If set_page_config fails, we're in trouble - show error and stop
+    st.error(f"⚠️ Failed to initialize Streamlit: {e}")
+    st.stop()
 
 # Custom CSS for high-tech professional look
 st.markdown("""
@@ -4228,58 +4234,70 @@ ui_glow_patch.apply()  # apply glow after set_page_config
 # Firebase Authentication - Require login before app access
 # ============================================================================
 # Lazy import Firebase modules (after st.set_page_config)
+# Wrap in outer try-catch to ensure we always show something useful
 try:
-    # Import here to avoid import-time errors
-    from firebase_auth import require_authentication
-    from firebase_db import FirestoreDB
-    
-    # Use global keyword to update module-level variables
-    global auth, user_id, db
-    
-    auth = require_authentication()  # This will show login UI if not authenticated
-    user_id = auth.get_user_id()
-    user_email = auth.get_user_email()
-    display_name = auth.get_display_name()
-    
-    # Initialize Firestore DB
-    db = FirestoreDB()
-    
-except FileNotFoundError as e:
-    # Firebase secrets not configured - show helpful error but don't crash
-    st.error("🔥 **Firebase Configuration Missing**")
-    st.error("The app requires Firebase to be configured for cloud deployment.")
-    st.info("""
-    **To fix this:**
-    
-    1. Go to your Firebase Console: https://console.firebase.google.com/
-    2. Download your service account key (Project Settings → Service Accounts)
-    3. Run `python convert_key_to_toml.py` locally
-    4. Copy the contents of `.streamlit_secrets_toml.txt`
-    5. Go to Streamlit Cloud → Your App → Settings → Secrets
-    6. Paste the TOML content and save
-    
-    **Error:** `{}`
-    """.format(str(e)))
-    st.stop()
-    
-except Exception as e:
-    # Other Firebase errors - log but don't crash on health check
-    error_msg = str(e)
-    st.error(f"🔥 **Firebase Initialization Error**")
-    st.error(f"**Error:** {error_msg}")
-    st.info("""
-    **Possible causes:**
-    1. Firebase secrets are misconfigured in Streamlit Cloud
-    2. Service account key is invalid or expired
-    3. Firebase project permissions issue
-    4. Network connectivity issue
-    
-    **Check your Streamlit Cloud secrets at:**
-    https://share.streamlit.io → Your App → Settings → Secrets
-    """)
+    try:
+        # Import here to avoid import-time errors
+        from firebase_auth import require_authentication
+        from firebase_db import FirestoreDB
+        
+        # Use global keyword to update module-level variables
+        global auth, user_id, db
+        
+        auth = require_authentication()  # This will show login UI if not authenticated
+        user_id = auth.get_user_id()
+        user_email = auth.get_user_email()
+        display_name = auth.get_display_name()
+        
+        # Initialize Firestore DB
+        db = FirestoreDB()
+        
+    except FileNotFoundError as e:
+        # Firebase secrets not configured - show helpful error but don't crash
+        st.error("🔥 **Firebase Configuration Missing**")
+        st.error("The app requires Firebase to be configured for cloud deployment.")
+        st.info("""
+        **To fix this:**
+        
+        1. Go to your Firebase Console: https://console.firebase.google.com/
+        2. Download your service account key (Project Settings → Service Accounts)
+        3. Run `python convert_key_to_toml.py` locally
+        4. Copy the contents of `.streamlit_secrets_toml.txt`
+        5. Go to Streamlit Cloud → Your App → Settings → Secrets
+        6. Paste the TOML content and save
+        
+        **Error:** `{}`
+        """.format(str(e)))
+        st.stop()
+        
+    except Exception as e:
+        # Other Firebase errors - log but don't crash on health check
+        error_msg = str(e)
+        st.error(f"🔥 **Firebase Initialization Error**")
+        st.error(f"**Error:** {error_msg}")
+        st.info("""
+        **Possible causes:**
+        1. Firebase secrets are misconfigured in Streamlit Cloud
+        2. Service account key is invalid or expired
+        3. Firebase project permissions issue
+        4. Network connectivity issue
+        
+        **Check your Streamlit Cloud secrets at:**
+        https://share.streamlit.io → Your App → Settings → Secrets
+        """)
+        import traceback
+        with st.expander("📋 Technical Error Details"):
+            st.code(traceback.format_exc())
+        st.stop()
+
+except Exception as outer_e:
+    # Ultimate fallback - catch ANY error during startup
+    st.error("💥 **Critical Startup Error**")
+    st.error("The app encountered an unexpected error during initialization.")
     import traceback
-    with st.expander("📋 Technical Error Details"):
+    with st.expander("📋 Full Error Traceback"):
         st.code(traceback.format_exc())
+    st.info("Please check the Streamlit Cloud logs for more details.")
     st.stop()
 
 # Professional header
