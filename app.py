@@ -135,7 +135,7 @@ user_id = None
 db = None
 
 def load_custom_tickers() -> dict:
-    """Load custom tickers from Firestore."""
+    """Load custom tickers from Firestore (or return empty if Firebase not available)."""
     try:
         # user_id and db are global variables set after authentication
         if user_id is None or db is None:
@@ -148,18 +148,19 @@ def load_custom_tickers() -> dict:
             data["selected"] = {"Stocks": [], "Crypto": []}
         return data
     except Exception:
+        # Firebase not available - return empty data
         return {"custom": {"Stocks": [], "Crypto": []}, "selected": {"Stocks": [], "Crypto": []}}
 
 def save_custom_tickers(data: dict):
-    """Save custom tickers to Firestore."""
+    """Save custom tickers to Firestore (or skip if Firebase not available)."""
     try:
         # user_id and db are global variables set after authentication
         if user_id is None or db is None:
-            st.error("Not authenticated. Please log in.")
+            st.warning("⚠️ Firebase not available - data will not persist")
             return
         db.save_custom_tickers(user_id, data)
     except Exception as e:
-        st.error(f"Failed to save custom tickers: {e}")
+        st.warning(f"⚠️ Could not save to Firebase: {e}")
 
 # --- Alerts persistence ---
 def load_alerts() -> list:
@@ -172,14 +173,14 @@ def load_alerts() -> list:
         return []
 
 def save_alerts(alerts: list):
-    """Save alerts to Firestore."""
+    """Save alerts to Firestore (or skip if Firebase not available)."""
     try:
         if user_id is None or db is None:
-            st.error("Not authenticated. Please log in.")
+            st.warning("⚠️ Firebase not available - data will not persist")
             return
         db.save_alerts(user_id, alerts)
     except Exception as e:
-        st.error(f"Failed to save alerts: {e}")
+        st.warning(f"⚠️ Could not save to Firebase: {e}")
 
 # --- Portfolio persistence ---
 def load_portfolio() -> dict:
@@ -192,14 +193,14 @@ def load_portfolio() -> dict:
         return {"tickers": [], "weights": {}}
 
 def save_portfolio(portfolio: dict):
-    """Save portfolio to Firestore."""
+    """Save portfolio to Firestore (or skip if Firebase not available)."""
     try:
         if user_id is None or db is None:
-            st.error("Not authenticated. Please log in.")
+            st.warning("⚠️ Firebase not available - data will not persist")
             return
         db.save_portfolio(user_id, portfolio)
     except Exception as e:
-        st.error(f"Failed to save portfolio: {e}")
+        st.warning(f"⚠️ Could not save to Firebase: {e}")
 
 # --- Cross history persistence ---
 def load_cross_history() -> dict:
@@ -212,14 +213,14 @@ def load_cross_history() -> dict:
         return {}
 
 def save_cross_history(history: dict):
-    """Save cross history to Firestore."""
+    """Save cross history to Firestore (or skip if Firebase not available)."""
     try:
         if user_id is None or db is None:
-            st.error("Not authenticated. Please log in.")
+            st.warning("⚠️ Firebase not available - data will not persist")
             return
         db.save_cross_history(user_id, history)
     except Exception as e:
-        st.error(f"Failed to save cross history: {e}")
+        st.warning(f"⚠️ Could not save to Firebase: {e}")
 
 # --- Watchlists persistence ---
 def load_watchlists() -> dict:
@@ -232,14 +233,14 @@ def load_watchlists() -> dict:
         return {}
 
 def save_watchlists(watchlists: dict):
-    """Save watchlists to Firestore."""
+    """Save watchlists to Firestore (or skip if Firebase not available)."""
     try:
         if user_id is None or db is None:
-            st.error("Not authenticated. Please log in.")
+            st.warning("⚠️ Firebase not available - data will not persist")
             return
         db.save_watchlists(user_id, watchlists)
     except Exception as e:
-        st.error(f"Failed to save watchlists: {e}")
+        st.warning(f"⚠️ Could not save to Firebase: {e}")
 
 # --- Performance Metrics ---
 def calculate_performance_metrics(df: pd.DataFrame) -> dict:
@@ -294,14 +295,14 @@ def load_email_config() -> dict:
         return {}
 
 def save_email_config(config: dict):
-    """Save email configuration to Firestore."""
+    """Save email configuration to Firestore (or skip if Firebase not available)."""
     try:
         if user_id is None or db is None:
-            st.error("Not authenticated. Please log in.")
+            st.warning("⚠️ Firebase not available - data will not persist")
             return
         db.save_email_config(user_id, config)
     except Exception as e:
-        st.error(f"Failed to save email config: {e}")
+        st.warning(f"⚠️ Could not save to Firebase: {e}")
 
 # --- Kraken API Configuration ---
 def load_kraken_config() -> dict:
@@ -1034,17 +1035,17 @@ def load_alert_history() -> list:
         return []
 
 def save_alert_history(history: list):
-    """Save alert history to Firestore."""
+    """Save alert history to Firestore (or skip if Firebase not available)."""
     try:
         if user_id is None or db is None:
-            st.error("Not authenticated. Please log in.")
+            st.warning("⚠️ Firebase not available - data will not persist")
             return
         # Clear existing history and add all items
         # Note: For better performance, consider using add_alert_history for individual items
         for item in history:
             db.add_alert_history(user_id, item)
     except Exception as e:
-        st.error(f"Failed to save alert history: {e}")
+        st.warning(f"⚠️ Could not save to Firebase: {e}")
 
 # --- Trade Journal ---
 def load_trade_journal() -> list:
@@ -1057,14 +1058,14 @@ def load_trade_journal() -> list:
         return []
 
 def save_trade_journal(journal: list):
-    """Save trade journal to Firestore."""
+    """Save trade journal to Firestore (or skip if Firebase not available)."""
     try:
         if user_id is None or db is None:
-            st.error("Not authenticated. Please log in.")
+            st.warning("⚠️ Firebase not available - data will not persist")
             return
         db.save_trade_journal(user_id, journal)
     except Exception as e:
-        st.error(f"Failed to save trade journal: {e}")
+        st.warning(f"⚠️ Could not save to Firebase: {e}")
 
 # --- Fair Value Gap Detection ---
 def find_fair_value_gaps(df: pd.DataFrame) -> list:
