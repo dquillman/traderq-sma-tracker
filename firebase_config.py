@@ -25,7 +25,15 @@ def get_firebase_credentials() -> str:
         FileNotFoundError: If credentials are not found in either location
     """
     # Check if running on Streamlit Cloud (secrets are available)
-    if hasattr(st, 'secrets') and st.secrets and 'firebase' in st.secrets:
+    # Use try/except to safely check for secrets
+    try:
+        has_secrets = hasattr(st, 'secrets') and st.secrets is not None
+        has_firebase_secret = has_secrets and 'firebase' in st.secrets
+    except (AttributeError, TypeError):
+        has_secrets = False
+        has_firebase_secret = False
+    
+    if has_firebase_secret:
         # Running on Streamlit Cloud - use secrets
         try:
             firebase_secrets = st.secrets['firebase']
