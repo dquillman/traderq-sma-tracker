@@ -2,7 +2,17 @@
 # v1.4.8
 # Single-file Streamlit app with clean SMA logic, pretouch screener, cross markers,
 # crypto fallback, and trend chips (Bullish/Bearish) without emoji.
+
+# CRITICAL: Write to stderr immediately to track startup
+import sys
+sys.stderr.write("=" * 70 + "\n")
+sys.stderr.write("APP.PY: Starting imports...\n")
+sys.stderr.flush()
+
 from __future__ import annotations
+
+sys.stderr.write("✓ __future__ imported\n")
+sys.stderr.flush()
 
 import json
 import math
@@ -10,10 +20,15 @@ import time
 from datetime import date, datetime, timedelta
 from functools import lru_cache
 
+sys.stderr.write("✓ Standard library imports done\n")
+sys.stderr.flush()
 
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+
+sys.stderr.write("✓ Data science imports done\n")
+sys.stderr.flush()
 
 
 def add_cross_markers(fig: go.Figure, df: pd.DataFrame,
@@ -55,23 +70,45 @@ def add_cross_markers(fig: go.Figure, df: pd.DataFrame,
         ), row=row, col=col)
 
 
+sys.stderr.write("Importing streamlit...\n")
+sys.stderr.flush()
+
 import streamlit as st
-import sys
+
+sys.stderr.write("✓ Streamlit imported\n")
+sys.stderr.flush()
 
 # Import patches - wrap in try/except to prevent crashes
+sys.stderr.write("Importing ui_glow_patch...\n")
+sys.stderr.flush()
 try:
     import ui_glow_patch
+    sys.stderr.write("✓ ui_glow_patch imported\n")
+    sys.stderr.flush()
 except Exception as e:
-    sys.stderr.write(f"Warning: Could not import ui_glow_patch: {e}\n")
+    sys.stderr.write(f"✗ Could not import ui_glow_patch: {e}\n")
+    sys.stderr.flush()
+    import traceback
+    traceback.print_exc(file=sys.stderr)
     sys.stderr.flush()
     ui_glow_patch = None
 
+sys.stderr.write("Importing yf_patch...\n")
+sys.stderr.flush()
 try:
     import yf_patch  # glow+session patch
+    sys.stderr.write("✓ yf_patch imported\n")
+    sys.stderr.flush()
 except Exception as e:
-    sys.stderr.write(f"Warning: Could not import yf_patch: {e}\n")
+    sys.stderr.write(f"✗ Could not import yf_patch: {e}\n")
+    sys.stderr.flush()
+    import traceback
+    traceback.print_exc(file=sys.stderr)
     sys.stderr.flush()
     yf_patch = None
+
+sys.stderr.write("All imports complete. Starting app code...\n")
+sys.stderr.flush()
 
 # Firebase imports - lazy loaded to avoid import-time errors
 # These will be imported only when needed, after st.set_page_config
