@@ -4248,13 +4248,13 @@ print("✓ Status message displayed", file=sys.stderr)
 try:
     try:
         print("Attempting to import Firebase modules...", file=sys.stderr)
+        # Use global keyword BEFORE any assignments
+        global auth, user_id, db
+        
         # Import here to avoid import-time errors
         from firebase_auth import require_authentication
         from firebase_db import FirestoreDB
         print("✓ Firebase modules imported", file=sys.stderr)
-        
-        # Use global keyword to update module-level variables
-        global auth, user_id, db
         
         print("Calling require_authentication()...", file=sys.stderr)
         auth = require_authentication()  # This will show login UI if not authenticated

@@ -3,11 +3,16 @@ Firebase Configuration Module
 Handles Firebase credentials for both local development and Streamlit Cloud deployment
 """
 
-import streamlit as st
+# Lazy import streamlit - don't import at module level to avoid issues
 import os
 import json
 import tempfile
 from typing import Optional
+
+def _get_streamlit():
+    """Lazy import streamlit to avoid import-time issues"""
+    import streamlit as st
+    return st
 
 
 def get_firebase_credentials() -> str:
@@ -24,6 +29,9 @@ def get_firebase_credentials() -> str:
     Raises:
         FileNotFoundError: If credentials are not found in either location
     """
+    # Lazy import streamlit
+    st = _get_streamlit()
+    
     # Check if running on Streamlit Cloud (secrets are available)
     # Use try/except to safely check for secrets
     try:

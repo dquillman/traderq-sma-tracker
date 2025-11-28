@@ -3,12 +3,17 @@ Firebase Authentication module for TraderQ
 Handles user authentication, session management, and user creation
 """
 
-import streamlit as st
+# Lazy import streamlit to avoid import-time issues
 import firebase_admin
 from firebase_admin import auth, credentials, firestore
 from datetime import datetime, timedelta
 import os
 from typing import Optional, Dict
+
+def _get_streamlit():
+    """Lazy import streamlit to avoid import-time issues"""
+    import streamlit as st
+    return st
 
 
 class FirebaseAuth:
@@ -37,6 +42,9 @@ class FirebaseAuth:
 
         self.db = firestore.client()
 
+        # Lazy import streamlit
+        st = _get_streamlit()
+        
         # Initialize session state if not exists
         if 'authenticated' not in st.session_state:
             st.session_state['authenticated'] = False
