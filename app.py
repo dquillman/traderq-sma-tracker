@@ -3987,14 +3987,28 @@ def build_screener(tickers: list[str], start: date, end: date, mode: str, pretou
 
 # --- UI ---
 # Wrap everything in error handling to catch any startup crashes
+# Write to stderr immediately to ensure we can see startup progress
+sys.stderr.write("=" * 70 + "\n")
+sys.stderr.write("APP.PY STARTING - SET_PAGE_CONFIG\n")
+sys.stderr.write("=" * 70 + "\n")
+sys.stderr.flush()
+
 try:
+    sys.stderr.write("Calling st.set_page_config...\n")
+    sys.stderr.flush()
     st.set_page_config(
         page_title="TraderQ - Professional Trading Analytics",
         page_icon="📈",
         layout="wide",
         initial_sidebar_state="expanded"
     )
+    sys.stderr.write("✓ st.set_page_config succeeded\n")
+    sys.stderr.flush()
 except Exception as e:
+    sys.stderr.write(f"✗ st.set_page_config failed: {e}\n")
+    import traceback
+    traceback.print_exc(file=sys.stderr)
+    sys.stderr.flush()
     # If set_page_config fails, we're in trouble - show error and stop
     st.error(f"⚠️ Failed to initialize Streamlit: {e}")
     st.stop()
