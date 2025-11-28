@@ -4233,32 +4233,53 @@ ui_glow_patch.apply()  # apply glow after set_page_config
 # ============================================================================
 # Firebase Authentication - Require login before app access
 # ============================================================================
+# Debug: Write to console (visible in Streamlit Cloud logs)
+import sys
+print("=" * 70, file=sys.stderr)
+print("STARTING FIREBASE INITIALIZATION", file=sys.stderr)
+print("=" * 70, file=sys.stderr)
+
 # Show a simple status message first to ensure the app is responding
 st.info("🔄 Initializing Firebase authentication...")
+print("✓ Status message displayed", file=sys.stderr)
 
 # Lazy import Firebase modules (after st.set_page_config)
 # Wrap in outer try-catch to ensure we always show something useful
 try:
     try:
+        print("Attempting to import Firebase modules...", file=sys.stderr)
         # Import here to avoid import-time errors
         from firebase_auth import require_authentication
         from firebase_db import FirestoreDB
+        print("✓ Firebase modules imported", file=sys.stderr)
         
         # Use global keyword to update module-level variables
         global auth, user_id, db
         
+        print("Calling require_authentication()...", file=sys.stderr)
         auth = require_authentication()  # This will show login UI if not authenticated
+        print("✓ Authentication required", file=sys.stderr)
+        
         user_id = auth.get_user_id()
         user_email = auth.get_user_email()
         display_name = auth.get_display_name()
+        print(f"✓ User: {display_name} ({user_email})", file=sys.stderr)
         
         # Initialize Firestore DB
+        print("Initializing Firestore DB...", file=sys.stderr)
         db = FirestoreDB()
+        print("✓ Firestore DB initialized", file=sys.stderr)
         
         # Clear the status message since we succeeded
         st.empty()
+        print("=" * 70, file=sys.stderr)
+        print("FIREBASE INITIALIZATION SUCCESSFUL", file=sys.stderr)
+        print("=" * 70, file=sys.stderr)
         
     except FileNotFoundError as e:
+        print(f"✗ FileNotFoundError: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
         # Firebase secrets not configured - show helpful error but don't crash
         st.error("🔥 **Firebase Configuration Missing**")
         st.error("The app requires Firebase to be configured for cloud deployment.")
@@ -4281,6 +4302,9 @@ try:
         # Other Firebase errors - log but don't crash on health check
         error_msg = str(e)
         error_type = type(e).__name__
+        print(f"✗ {error_type}: {error_msg}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
         st.error(f"🔥 **Firebase Initialization Error** ({error_type})")
         st.error(f"**Error:** {error_msg}")
         st.info("""
@@ -4301,9 +4325,15 @@ try:
 except Exception as outer_e:
     # Ultimate fallback - catch ANY error during startup
     error_type = type(outer_e).__name__
-    st.error(f"💥 **Critical Startup Error** ({error_type})")
-    st.error(f"The app encountered an unexpected error: {str(outer_e)}")
+    error_msg = str(outer_e)
+    print("=" * 70, file=sys.stderr)
+    print(f"CRITICAL ERROR: {error_type}", file=sys.stderr)
+    print(f"Message: {error_msg}", file=sys.stderr)
     import traceback
+    traceback.print_exc(file=sys.stderr)
+    print("=" * 70, file=sys.stderr)
+    st.error(f"💥 **Critical Startup Error** ({error_type})")
+    st.error(f"The app encountered an unexpected error: {error_msg}")
     with st.expander("📋 Full Error Traceback"):
         st.code(traceback.format_exc())
     st.info("Please check the Streamlit Cloud logs for more details.")
