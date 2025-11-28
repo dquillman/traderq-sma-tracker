@@ -4245,16 +4245,17 @@ print("✓ Status message displayed", file=sys.stderr)
 
 # Lazy import Firebase modules (after st.set_page_config)
 # Wrap in outer try-catch to ensure we always show something useful
+# IMPORTANT: global declaration must be at function/module level, not inside try
 try:
     try:
         print("Attempting to import Firebase modules...", file=sys.stderr)
-        # Use global keyword BEFORE any assignments
-        global auth, user_id, db
-        
         # Import here to avoid import-time errors
         from firebase_auth import require_authentication
         from firebase_db import FirestoreDB
         print("✓ Firebase modules imported", file=sys.stderr)
+        
+        # Update module-level global variables (declared at top of file)
+        # Note: auth, user_id, db are already declared as globals at module level
         
         print("Calling require_authentication()...", file=sys.stderr)
         auth = require_authentication()  # This will show login UI if not authenticated
