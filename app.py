@@ -315,14 +315,14 @@ def load_kraken_config() -> dict:
         return {}
 
 def save_kraken_config(config: dict):
-    """Save Kraken API configuration to Firestore."""
+    """Save Kraken API configuration to Firestore (or skip if Firebase not available)."""
     try:
         if user_id is None or db is None:
-            st.error("Not authenticated. Please log in.")
+            st.warning("⚠️ Firebase not available - data will not persist")
             return
         db.save_kraken_config(user_id, config)
     except Exception as e:
-        st.error(f"Failed to save Kraken config: {e}")
+        st.warning(f"⚠️ Could not save to Firebase: {e}")
 
 # --- Kraken API Functions ---
 def get_kraken_client(api_key: str = None, api_secret: str = None):
@@ -4316,138 +4316,72 @@ else:
     sys.stderr.flush()
 
 # ============================================================================
-# Firebase Authentication - Require login before app access
+# Firebase Authentication - OPTIONAL: App will work without it
 # ============================================================================
-# Debug: Write to console (visible in Streamlit Cloud logs)
+# Make Firebase completely optional so app can start even if Firebase fails
 sys.stderr.write("=" * 70 + "\n")
-print("STARTING FIREBASE INITIALIZATION", file=sys.stderr)
-print("=" * 70, file=sys.stderr)
+sys.stderr.write("ATTEMPTING FIREBASE INITIALIZATION (OPTIONAL)\n")
+sys.stderr.write("=" * 70 + "\n")
+sys.stderr.flush()
 
-# Show a simple status message first to ensure the app is responding
-st.info("🔄 Initializing Firebase authentication...")
-print("✓ Status message displayed", file=sys.stderr)
+# Initialize with None - app will work in "local mode" if Firebase fails
+auth = None
+user_id = None
+user_email = None
+display_name = "Guest User"
+db = None
 
-# Lazy import Firebase modules (after st.set_page_config)
-# Wrap in outer try-catch to ensure we always show something useful
-# IMPORTANT: global declaration must be at function/module level, not inside try
 try:
-    try:
-        print("Attempting to import Firebase modules...", file=sys.stderr)
-        # Import here to avoid import-time errors
-        from firebase_auth import require_authentication
-        from firebase_db import FirestoreDB
-        print("✓ Firebase modules imported", file=sys.stderr)
-        
-        # Update module-level global variables (declared at top of file)
-        # Note: auth, user_id, db are already declared as globals at module level
-        
-        print("Calling require_authentication()...", file=sys.stderr)
-        sys.stderr.flush()
-        
-        # Add timeout protection - if Firebase hangs, fail fast
-        import signal
-        
-        def timeout_handler(signum, frame):
-            raise TimeoutError("Firebase initialization timed out")
-        
-        # Try to initialize with timeout (if signal is available)
-        try:
-            # On Unix systems, we can use signal.alarm
-            # On Windows/Streamlit Cloud, this won't work, but we'll try anyway
-            if hasattr(signal, 'alarm'):
-                signal.signal(signal.SIGALRM, timeout_handler)
-                signal.alarm(10)  # 10 second timeout
-            
-            auth = require_authentication()  # This will show login UI if not authenticated
-            
-            if hasattr(signal, 'alarm'):
-                signal.alarm(0)  # Cancel alarm
-            
-            print("✓ Authentication required", file=sys.stderr)
-            sys.stderr.flush()
-        except TimeoutError:
-            if hasattr(signal, 'alarm'):
-                signal.alarm(0)
-            raise RuntimeError("Firebase initialization timed out after 10 seconds")
-        
-        user_id = auth.get_user_id()
-        user_email = auth.get_user_email()
-        display_name = auth.get_display_name()
-        print(f"✓ User: {display_name} ({user_email})", file=sys.stderr)
-        
-        # Initialize Firestore DB
-        print("Initializing Firestore DB...", file=sys.stderr)
-        db = FirestoreDB()
-        print("✓ Firestore DB initialized", file=sys.stderr)
-        
-        # Clear the status message since we succeeded
-        st.empty()
-        print("=" * 70, file=sys.stderr)
-        print("FIREBASE INITIALIZATION SUCCESSFUL", file=sys.stderr)
-        print("=" * 70, file=sys.stderr)
-        
-    except FileNotFoundError as e:
-        print(f"✗ FileNotFoundError: {e}", file=sys.stderr)
-        import traceback
-        traceback.print_exc(file=sys.stderr)
-        # Firebase secrets not configured - show helpful error but don't crash
-        st.error("🔥 **Firebase Configuration Missing**")
-        st.error("The app requires Firebase to be configured for cloud deployment.")
-        st.error(f"**Error:** `{str(e)}`")
-        st.info("""
-        **To fix this:**
-        
-        1. Go to your Firebase Console: https://console.firebase.google.com/
-        2. Download your service account key (Project Settings → Service Accounts)
-        3. Run `python convert_key_to_toml.py` locally
-        4. Copy the contents of `.streamlit_secrets_toml.txt`
-        5. Go to Streamlit Cloud → Your App → Settings → Secrets
-        6. Paste the TOML content and save
-        
-        **Important:** After saving secrets, wait 2-3 minutes for the app to redeploy.
-        """)
-        st.stop()
-        
-    except Exception as e:
-        # Other Firebase errors - log but don't crash on health check
-        error_msg = str(e)
-        error_type = type(e).__name__
-        print(f"✗ {error_type}: {error_msg}", file=sys.stderr)
-        import traceback
-        traceback.print_exc(file=sys.stderr)
-        st.error(f"🔥 **Firebase Initialization Error** ({error_type})")
-        st.error(f"**Error:** {error_msg}")
-        st.info("""
-        **Possible causes:**
-        1. Firebase secrets are misconfigured in Streamlit Cloud
-        2. Service account key is invalid or expired
-        3. Firebase project permissions issue
-        4. Network connectivity issue
-        
-        **Check your Streamlit Cloud secrets at:**
-        https://share.streamlit.io → Your App → Settings → Secrets
-        """)
-        import traceback
-        with st.expander("📋 Technical Error Details"):
-            st.code(traceback.format_exc())
-        st.stop()
-
-except Exception as outer_e:
-    # Ultimate fallback - catch ANY error during startup
-    error_type = type(outer_e).__name__
-    error_msg = str(outer_e)
-    print("=" * 70, file=sys.stderr)
-    print(f"CRITICAL ERROR: {error_type}", file=sys.stderr)
-    print(f"Message: {error_msg}", file=sys.stderr)
+    sys.stderr.write("Importing Firebase modules...\n")
+    sys.stderr.flush()
+    from firebase_auth import require_authentication
+    from firebase_db import FirestoreDB
+    
+    sys.stderr.write("✓ Firebase modules imported\n")
+    sys.stderr.flush()
+    
+    sys.stderr.write("Initializing Firebase...\n")
+    sys.stderr.flush()
+    
+    auth = require_authentication()
+    user_id = auth.get_user_id()
+    user_email = auth.get_user_email()
+    display_name = auth.get_display_name() or "Guest User"
+    db = FirestoreDB()
+    
+    sys.stderr.write(f"✓ Firebase initialized - User: {display_name}\n")
+    sys.stderr.flush()
+    
+except Exception as e:
+    # Firebase failed - but app can still run!
+    error_type = type(e).__name__
+    sys.stderr.write(f"⚠ Firebase initialization failed ({error_type}): {str(e)}\n")
+    sys.stderr.flush()
     import traceback
     traceback.print_exc(file=sys.stderr)
-    print("=" * 70, file=sys.stderr)
-    st.error(f"💥 **Critical Startup Error** ({error_type})")
-    st.error(f"The app encountered an unexpected error: {error_msg}")
-    with st.expander("📋 Full Error Traceback"):
-        st.code(traceback.format_exc())
-    st.info("Please check the Streamlit Cloud logs for more details.")
-    st.stop()
+    sys.stderr.flush()
+    
+    # Show warning but don't stop the app
+    st.warning("⚠️ **Firebase Not Available** - Running in local mode")
+    st.info("""
+    **The app is running without Firebase authentication.**
+    
+    - Data will not persist between sessions
+    - Multi-user features are disabled
+    - To enable Firebase, configure secrets in Streamlit Cloud
+    
+    **To fix:**
+    1. Go to Streamlit Cloud → Settings → Secrets
+    2. Paste your Firebase credentials (from `.streamlit_secrets_toml.txt`)
+    3. Save and wait for redeployment
+    """)
+    
+    # Set defaults for local mode
+    auth = None
+    user_id = "local_user"
+    user_email = "local@example.com"
+    display_name = "Guest User"
+    db = None
 
 # Professional header
 st.markdown(f"""
