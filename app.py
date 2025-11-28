@@ -4050,6 +4050,18 @@ except Exception as e:
     st.error(f"⚠️ Failed to initialize Streamlit: {e}")
     st.stop()
 
+# CRITICAL: Show a simple message immediately to prove app is running
+# This helps Streamlit Cloud health checks pass
+sys.stderr.write("Showing startup message...\n")
+sys.stderr.flush()
+try:
+    st.info("🚀 TraderQ is starting up...")
+    sys.stderr.write("✓ Startup message displayed\n")
+    sys.stderr.flush()
+except Exception as e:
+    sys.stderr.write(f"⚠ Could not show startup message: {e}\n")
+    sys.stderr.flush()
+
 # Custom CSS for high-tech professional look
 st.markdown("""
 <style>
