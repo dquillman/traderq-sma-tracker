@@ -4254,8 +4254,7 @@ if ui_glow_patch is not None:
 # Firebase Authentication - Require login before app access
 # ============================================================================
 # Debug: Write to console (visible in Streamlit Cloud logs)
-import sys
-print("=" * 70, file=sys.stderr)
+sys.stderr.write("=" * 70 + "\n")
 print("STARTING FIREBASE INITIALIZATION", file=sys.stderr)
 print("=" * 70, file=sys.stderr)
 
