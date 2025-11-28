@@ -4341,8 +4341,33 @@ try:
         # Note: auth, user_id, db are already declared as globals at module level
         
         print("Calling require_authentication()...", file=sys.stderr)
-        auth = require_authentication()  # This will show login UI if not authenticated
-        print("✓ Authentication required", file=sys.stderr)
+        sys.stderr.flush()
+        
+        # Add timeout protection - if Firebase hangs, fail fast
+        import signal
+        
+        def timeout_handler(signum, frame):
+            raise TimeoutError("Firebase initialization timed out")
+        
+        # Try to initialize with timeout (if signal is available)
+        try:
+            # On Unix systems, we can use signal.alarm
+            # On Windows/Streamlit Cloud, this won't work, but we'll try anyway
+            if hasattr(signal, 'alarm'):
+                signal.signal(signal.SIGALRM, timeout_handler)
+                signal.alarm(10)  # 10 second timeout
+            
+            auth = require_authentication()  # This will show login UI if not authenticated
+            
+            if hasattr(signal, 'alarm'):
+                signal.alarm(0)  # Cancel alarm
+            
+            print("✓ Authentication required", file=sys.stderr)
+            sys.stderr.flush()
+        except TimeoutError:
+            if hasattr(signal, 'alarm'):
+                signal.alarm(0)
+            raise RuntimeError("Firebase initialization timed out after 10 seconds")
         
         user_id = auth.get_user_id()
         user_email = auth.get_user_email()

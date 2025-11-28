@@ -30,14 +30,36 @@ class FirebaseAuth:
                 from firebase_config import get_firebase_credentials
 
                 # Get credentials path (works for both local and Streamlit Cloud)
+                # Add timeout protection
+                import sys
+                sys.stderr.write("Getting Firebase credentials...\n")
+                sys.stderr.flush()
+                
                 creds_path = get_firebase_credentials()
+                
+                sys.stderr.write(f"Credentials path: {creds_path}\n")
+                sys.stderr.flush()
+                
+                sys.stderr.write("Creating certificate...\n")
+                sys.stderr.flush()
                 cred = credentials.Certificate(creds_path)
+                
+                sys.stderr.write("Initializing Firebase Admin SDK...\n")
+                sys.stderr.flush()
                 firebase_admin.initialize_app(cred)
+                
+                sys.stderr.write("✓ Firebase Admin SDK initialized\n")
+                sys.stderr.flush()
             except FileNotFoundError:
                 # Re-raise FileNotFoundError as-is (will be handled in app.py)
                 raise
             except Exception as e:
                 # Re-raise other exceptions to be handled upstream
+                import sys
+                import traceback
+                sys.stderr.write(f"✗ Firebase initialization error: {e}\n")
+                traceback.print_exc(file=sys.stderr)
+                sys.stderr.flush()
                 raise RuntimeError(f"Firebase initialization failed: {e}") from e
 
         self.db = firestore.client()
