@@ -154,11 +154,11 @@ class FirebaseAuth:
                 })
 
             # Set session state
-            st.session_state['authenticated'] = True
-            st.session_state['user_id'] = user.uid
-            st.session_state['user_email'] = user.email
-            st.session_state['display_name'] = user.display_name or email.split('@')[0]
-            st.session_state['auth_timestamp'] = datetime.now()
+            self.st.session_state['authenticated'] = True
+            self.st.session_state['user_id'] = user.uid
+            self.st.session_state['user_email'] = user.email
+            self.st.session_state['display_name'] = user.display_name or email.split('@')[0]
+            self.st.session_state['auth_timestamp'] = datetime.now()
 
             return {
                 "success": True,
