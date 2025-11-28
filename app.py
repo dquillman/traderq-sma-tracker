@@ -56,18 +56,21 @@ def add_cross_markers(fig: go.Figure, df: pd.DataFrame,
 
 
 import streamlit as st
+import sys
 
 # Import patches - wrap in try/except to prevent crashes
 try:
     import ui_glow_patch
 except Exception as e:
-    print(f"Warning: Could not import ui_glow_patch: {e}", file=sys.stderr)
+    sys.stderr.write(f"Warning: Could not import ui_glow_patch: {e}\n")
+    sys.stderr.flush()
     ui_glow_patch = None
 
 try:
     import yf_patch  # glow+session patch
 except Exception as e:
-    print(f"Warning: Could not import yf_patch: {e}", file=sys.stderr)
+    sys.stderr.write(f"Warning: Could not import yf_patch: {e}\n")
+    sys.stderr.flush()
     yf_patch = None
 
 # Firebase imports - lazy loaded to avoid import-time errors
