@@ -4331,29 +4331,61 @@ user_email = None
 display_name = "Guest User"
 db = None
 
+# Try Firebase initialization - but don't let it block startup
 try:
     sys.stderr.write("Importing Firebase modules...\n")
     sys.stderr.flush()
-    from firebase_auth import require_authentication
+    from firebase_auth import FirebaseAuth
     from firebase_db import FirestoreDB
     
     sys.stderr.write("✓ Firebase modules imported\n")
     sys.stderr.flush()
     
-    sys.stderr.write("Initializing Firebase...\n")
+    sys.stderr.write("Initializing Firebase Admin SDK...\n")
     sys.stderr.flush()
     
-    auth = require_authentication()
-    user_id = auth.get_user_id()
-    user_email = auth.get_user_email()
-    display_name = auth.get_display_name() or "Guest User"
+    # Initialize FirebaseAuth but DON'T require authentication (skip require_auth)
+    # This prevents the login UI from blocking startup
+    auth_instance = FirebaseAuth()
+    
+    sys.stderr.write("✓ FirebaseAuth initialized\n")
+    sys.stderr.flush()
+    
+    # Only get user if already authenticated (don't show login UI)
+    if auth_instance.is_authenticated():
+        user_id = auth_instance.get_user_id()
+        user_email = auth_instance.get_user_email()
+        display_name = auth_instance.get_display_name() or "Guest User"
+        sys.stderr.write(f"✓ User authenticated: {display_name}\n")
+        sys.stderr.flush()
+    else:
+        # Not authenticated - run in guest mode
+        user_id = "guest_user"
+        user_email = "guest@traderq.app"
+        display_name = "Guest User"
+        sys.stderr.write("⚠ Not authenticated - running in guest mode\n")
+        sys.stderr.flush()
+    
+    # Initialize Firestore DB
     db = FirestoreDB()
+    auth = auth_instance
     
-    sys.stderr.write(f"✓ Firebase initialized - User: {display_name}\n")
+    sys.stderr.write("✓ Firebase fully initialized\n")
     sys.stderr.flush()
+    
+except FileNotFoundError as e:
+    # Firebase secrets missing - show info but continue
+    sys.stderr.write(f"⚠ Firebase secrets not found: {e}\n")
+    sys.stderr.flush()
+    st.sidebar.warning("⚠️ Firebase not configured - using local mode")
+    auth = None
+    user_id = "local_user"
+    user_email = "local@example.com"
+    display_name = "Guest User"
+    db = None
     
 except Exception as e:
-    # Firebase failed - but app can still run!
+    # Firebase failed for any reason - but app can still run!
     error_type = type(e).__name__
     sys.stderr.write(f"⚠ Firebase initialization failed ({error_type}): {str(e)}\n")
     sys.stderr.flush()
@@ -4361,22 +4393,7 @@ except Exception as e:
     traceback.print_exc(file=sys.stderr)
     sys.stderr.flush()
     
-    # Show warning but don't stop the app
-    st.warning("⚠️ **Firebase Not Available** - Running in local mode")
-    st.info("""
-    **The app is running without Firebase authentication.**
-    
-    - Data will not persist between sessions
-    - Multi-user features are disabled
-    - To enable Firebase, configure secrets in Streamlit Cloud
-    
-    **To fix:**
-    1. Go to Streamlit Cloud → Settings → Secrets
-    2. Paste your Firebase credentials (from `.streamlit_secrets_toml.txt`)
-    3. Save and wait for redeployment
-    """)
-    
-    # Set defaults for local mode
+    # Just log it - don't show warning unless user tries to save data
     auth = None
     user_id = "local_user"
     user_email = "local@example.com"
