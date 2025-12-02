@@ -27,6 +27,8 @@ Thumbs.db
 
 # Streamlit
 
+.streamlit/secrets.toml
+.streamlit_secrets_toml.txt
 *.log
 streamlit_*.log
 
@@ -58,6 +60,24 @@ nul
 
 # Nested repo (should be removed or handled separately)
 traderq-sma-tracker/
+traderq-sma-tracker.zip
+*.zip
+
+# Firebase
+serviceAccountKey.json
+.firebaserc
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+.firebase/
+
+# Environment variables
+.env
+.env.local
+
+# Docker
+Dockerfile.dockerignore
+.dockerignore
 
 
 # Deployment artifacts

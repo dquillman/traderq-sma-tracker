@@ -1,0 +1,20 @@
+================================================================================
+                           TRADERQ - QUICK START
+================================================================================
+
+1️⃣  DOUBLE-CLICK:  INSTALL_TRADERQ.bat
+   (This sets everything up - only need to do this once)
+
+2️⃣  DOUBLE-CLICK:  START_TRADERQ.bat
+   (This starts TraderQ every time you want to use it)
+
+3️⃣  KEEP THE SERVER WINDOW OPEN while using TraderQ
+
+That's it! The app will open in your browser automatically.
+
+================================================================================
+
+Need help? See README.txt for detailed instructions and troubleshooting.
+
+================================================================================
+

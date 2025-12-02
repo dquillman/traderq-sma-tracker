@@ -1,0 +1,17 @@
+Your Streamlit Cloud App URL:
+
+Most likely:
+https://traderq-sma-tracker.streamlit.app
+
+Or:
+https://dquillman-traderq-sma-tracker.streamlit.app
+
+Or:
+https://dquillman-traderq-sma-tracker-main-app-xxxxx.streamlit.app
+
+To find your EXACT URL:
+1. Go to: https://share.streamlit.io
+2. Sign in with GitHub
+3. Click on your app: "traderq-sma-tracker"
+4. The URL will be shown at the top of the page
+

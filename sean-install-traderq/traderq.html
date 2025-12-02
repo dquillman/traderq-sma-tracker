@@ -1,0 +1,2370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TraderQ SMA 20/200 Tracker - v2.5.0</title>
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(180deg, #0a0e27 0%, #1a1f3a 100%);
+            color: #e8ecf3;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 300px;
+            background: linear-gradient(180deg, #0a0e27 0%, #1a1f3a 100%);
+            border-right: 1px solid #00d4ff;
+            padding: 20px;
+            overflow-y: auto;
+            flex-shrink: 0;
+        }
+
+        .sidebar h3 {
+            color: #00d4ff;
+            margin-bottom: 15px;
+            font-size: 16px;
+            border-bottom: 1px solid #00d4ff;
+            padding-bottom: 8px;
+        }
+
+        .sidebar section {
+            margin-bottom: 25px;
+        }
+
+        .sidebar hr {
+            border: none;
+            border-top: 1px solid rgba(0, 212, 255, 0.3);
+            margin: 20px 0;
+        }
+
+        .sidebar label {
+            display: block;
+            margin-bottom: 8px;
+            color: #b0b0b0;
+            font-size: 14px;
+        }
+
+        .sidebar input[type="text"],
+        .sidebar input[type="number"],
+        .sidebar select {
+            width: 100%;
+            padding: 8px;
+            background-color: #1a1f3a;
+            border: 1px solid #00d4ff;
+            border-radius: 6px;
+            color: #ffffff;
+            font-size: 14px;
+            margin-bottom: 15px;
+        }
+
+        .sidebar input[type="checkbox"] {
+            margin-right: 8px;
+            margin-bottom: 10px;
+            cursor: pointer;
+        }
+
+        .sidebar input[type="radio"] {
+            margin-right: 8px;
+            margin-left: 10px;
+            cursor: pointer;
+        }
+
+        .radio-group {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+
+        .sidebar button {
+            width: 100%;
+            padding: 12px;
+            background: linear-gradient(90deg, #00d4ff 0%, #0099cc 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            margin-bottom: 10px;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0, 212, 255, 0.3);
+        }
+
+        .sidebar button:hover {
+            background: linear-gradient(90deg, #00ff88 0%, #00d4ff 100%);
+            box-shadow: 0 6px 20px rgba(0, 212, 255, 0.5);
+            transform: translateY(-2px);
+        }
+
+        .sidebar button:active {
+            transform: translateY(0);
+        }
+
+        .sidebar input[type="range"] {
+            width: 100%;
+            margin-bottom: 15px;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background-color: #1a1f3a;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-bottom: 10px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #00d4ff 0%, #0099cc 100%);
+            transition: width 0.3s ease;
+        }
+
+        /* Main Content */
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .header {
+            padding: 20px 30px;
+            border-bottom: 2px solid #00d4ff;
+            background: rgba(0, 212, 255, 0.05);
+        }
+
+        .header h1 {
+            color: #00d4ff;
+            font-size: 28px;
+            font-weight: 700;
+            margin-bottom: 5px;
+        }
+
+        .header .subtitle {
+            color: #b0b0b0;
+            font-size: 14px;
+        }
+
+        .tabs {
+            display: flex;
+            background-color: #0a0e27;
+            padding: 10px;
+            gap: 8px;
+            border-bottom: 1px solid rgba(0, 212, 255, 0.3);
+            overflow-x: auto;
+        }
+
+        .tab {
+            padding: 12px 24px;
+            background-color: #1a1f3a;
+            color: #b0b0b0;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            white-space: nowrap;
+        }
+
+        .tab:hover {
+            background-color: #2a2f4a;
+        }
+
+        .tab.active {
+            background: linear-gradient(90deg, #00d4ff 0%, #0099cc 100%);
+            color: white;
+            box-shadow: 0 4px 15px rgba(0, 212, 255, 0.3);
+        }
+
+        .tab-content {
+            flex: 1;
+            padding: 30px;
+            overflow-y: auto;
+        }
+
+        .chart-container {
+            width: 100%;
+            height: 600px;
+            margin-bottom: 30px;
+            background-color: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            padding: 20px;
+        }
+
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .metric {
+            background: linear-gradient(135deg, rgba(0, 212, 255, 0.1) 0%, rgba(0, 153, 204, 0.1) 100%);
+            border-left: 4px solid #00d4ff;
+            border-radius: 6px;
+            padding: 20px;
+        }
+
+        .metric-label {
+            color: #b0b0b0;
+            font-size: 12px;
+            margin-bottom: 5px;
+        }
+
+        .metric-value {
+            color: #00d4ff;
+            font-size: 24px;
+            font-weight: 700;
+        }
+
+        .metric-delta {
+            color: #00ff88;
+            font-size: 12px;
+            margin-top: 5px;
+        }
+
+        .info-box {
+            background: linear-gradient(135deg, rgba(0, 212, 255, 0.1) 0%, rgba(0, 153, 204, 0.1) 100%);
+            border-left: 4px solid #00d4ff;
+            border-radius: 6px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+
+        .success-box {
+            background: linear-gradient(135deg, rgba(0, 255, 136, 0.1) 0%, rgba(0, 212, 255, 0.1) 100%);
+            border-left: 4px solid #00ff88;
+            border-radius: 6px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+
+        .warning-box {
+            background: linear-gradient(135deg, rgba(255, 193, 7, 0.1) 0%, rgba(255, 152, 0, 0.1) 100%);
+            border-left: 4px solid #ffc107;
+            border-radius: 6px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+
+        .error-box {
+            background: linear-gradient(135deg, rgba(244, 67, 54, 0.1) 0%, rgba(211, 47, 47, 0.1) 100%);
+            border-left: 4px solid #f44336;
+            border-radius: 6px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #00d4ff;
+        }
+
+        .error {
+            color: #f44336;
+            padding: 20px;
+            background: rgba(244, 67, 54, 0.1);
+            border-radius: 6px;
+            margin-bottom: 20px;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            body {
+                flex-direction: column;
+            }
+
+            .sidebar {
+                width: 100%;
+                max-height: 300px;
+            }
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #1a1f3a;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #00d4ff;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #00ff88;
+        }
+
+        .ai-recommendation {
+            background: rgba(0, 212, 255, 0.1);
+            border: 2px solid #00d4ff;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .ai-recommendation h3 {
+            color: #00d4ff;
+            margin-bottom: 15px;
+        }
+
+        .signal-badge {
+            display: inline-block;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: 600;
+            margin: 5px;
+        }
+
+        .signal-long {
+            background: #00ff88;
+            color: #000;
+        }
+
+        .signal-short {
+            background: #f44336;
+            color: #fff;
+        }
+
+        .signal-neutral {
+            background: #b0b0b0;
+            color: #000;
+        }
+
+        .server-startup {
+            background: rgba(0, 212, 255, 0.1);
+            border: 2px solid #00d4ff;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .server-startup h3 {
+            color: #00ff88;
+            margin-bottom: 15px;
+        }
+
+        .code-block {
+            background: rgba(0, 0, 0, 0.5);
+            border: 1px solid #00d4ff;
+            border-radius: 6px;
+            padding: 12px;
+            margin: 10px 0;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            color: #00ff88;
+            overflow-x: auto;
+        }
+
+        .download-btn {
+            display: inline-block;
+            padding: 10px 20px;
+            background: linear-gradient(90deg, #00d4ff 0%, #0099cc 100%);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-weight: 600;
+            cursor: pointer;
+            margin: 5px;
+            text-decoration: none;
+            transition: all 0.3s ease;
+        }
+
+        .download-btn:hover {
+            background: linear-gradient(90deg, #00ff88 0%, #00d4ff 100%);
+            transform: translateY(-2px);
+        }
+    </style>
+</head>
+<body>
+    <!-- Sidebar -->
+    <div class="sidebar">
+        <h3>⚙️ Configuration</h3>
+        
+        <section>
+            <label>Market:</label>
+            <div class="radio-group">
+                <label><input type="radio" name="mode" value="Stocks" checked> Stocks</label>
+                <label><input type="radio" name="mode" value="Crypto"> Crypto</label>
+            </div>
+        </section>
+
+        <section>
+            <label>Data Source:</label>
+            <select id="dataSource">
+                <option value="Yahoo Finance">Yahoo Finance</option>
+                <option value="Alpha Vantage">Alpha Vantage (API Key Required)</option>
+            </select>
+            <input type="text" id="apiKey" placeholder="Alpha Vantage API Key (optional)" style="margin-top: 8px;">
+            <div style="font-size: 11px; color: #888; margin-top: 8px; padding: 8px; background: rgba(255, 193, 7, 0.1); border-left: 3px solid #ffc107; border-radius: 4px;">
+                <strong>Note:</strong> Yahoo Finance uses CORS proxies. If loading fails, try Alpha Vantage API (free key at alphavantage.co) or install a CORS browser extension.
+            </div>
+        </section>
+
+        <hr>
+
+        <section>
+            <h3>📊 Symbols</h3>
+            <input type="text" id="tickerInput" placeholder="e.g., AAPL or BTC-USD" value="SPY">
+            <button onclick="loadData()">Load Data</button>
+        </section>
+
+        <hr>
+
+        <section>
+            <h3>📊 Chart Settings</h3>
+            <label>Chart Theme:</label>
+            <div class="radio-group">
+                <label><input type="radio" name="theme" value="Dark" checked> Dark</label>
+                <label><input type="radio" name="theme" value="Light"> Light</label>
+            </div>
+
+            <label>Timeframe:</label>
+            <select id="timeframe">
+                <option value="1d">Daily</option>
+                <option value="5m">5 Minutes</option>
+                <option value="15m">15 Minutes</option>
+                <option value="1h">1 Hour</option>
+                <option value="1wk">Weekly</option>
+                <option value="1mo">Monthly</option>
+            </select>
+
+            <label>Lookback (days):</label>
+            <input type="number" id="periodDays" min="30" max="730" value="365">
+        </section>
+
+        <hr>
+
+        <section>
+            <h3>📊 Indicators</h3>
+            <label><input type="checkbox" id="showSMA20" checked> Show SMA 20</label>
+            <label><input type="checkbox" id="showSMA200" checked> Show SMA 200</label>
+            <label><input type="checkbox" id="showEMA"> Show EMA</label>
+            <label><input type="checkbox" id="showVolume"> Show Volume</label>
+            <label><input type="checkbox" id="showRSI" checked> Show RSI</label>
+            <label><input type="checkbox" id="showMACD" checked> Show MACD</label>
+            <div id="macdModeContainer" style="margin-left: 20px; margin-top: 10px; display: none;">
+                <label>MACD Mode:</label>
+                <div class="radio-group">
+                    <label><input type="radio" name="macdMode" value="Normal"> Normal</label>
+                    <label><input type="radio" name="macdMode" value="Extended" checked> Extended</label>
+                </div>
+                <label>Lookback (bars):</label>
+                <input type="number" id="macdSidewaysWindow" min="5" max="50" value="10">
+                <label>Range Threshold (%):</label>
+                <input type="number" id="macdSidewaysThreshold" min="1" max="20" step="0.5" value="8">
+            </div>
+            <label><input type="checkbox" id="showBollinger"> Show Bollinger Bands</label>
+            <label><input type="checkbox" id="showSupertrend" checked> Show Supertrend</label>
+            <label><input type="checkbox" id="showFVG" checked> Show Fair Value Gap</label>
+        </section>
+
+        <hr>
+
+        <section>
+            <h3>🤖 AI Recommendations</h3>
+            <label><input type="checkbox" id="useSMA_AI" checked> Use SMA</label>
+            <label><input type="checkbox" id="useRSI_AI" checked> Use RSI</label>
+            <label><input type="checkbox" id="useMACD_AI" checked> Use MACD</label>
+            <label><input type="checkbox" id="useSupertrend_AI" checked> Use Supertrend</label>
+            <label><input type="checkbox" id="useFVG_AI" checked> Use FVG</label>
+            <button onclick="generateAIRecommendation()">Generate AI Recommendation</button>
+        </section>
+
+        <hr>
+
+        <div id="loadingStatus" style="display: none; color: #00d4ff; margin-top: 20px;">
+            Loading data...
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="main-content">
+        <div class="header">
+            <h1>TraderQ SMA 20/200 Tracker</h1>
+            <div class="subtitle">Professional Trading Analytics - v2.5.0</div>
+        </div>
+
+        <div class="tabs">
+            <button class="tab active" onclick="switchTab(0)">📈 Tracker</button>
+            <button class="tab" onclick="switchTab(1)">🤖 AI Recommendations</button>
+            <button class="tab" onclick="switchTab(2)">📊 Indicators</button>
+        </div>
+
+        <div class="tab-content" id="tabContent">
+            <div id="trackerTab">
+                <div class="chart-container" id="chart"></div>
+                <div class="metrics" id="metrics"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global state
+        let currentData = null;
+        let currentTicker = 'SPY';
+        let tradeParams = null; // {entry, stopLoss, target, direction}
+        const APP_VERSION = 'v2.5.0';
+
+        // Technical Indicators (JavaScript implementations)
+        function sma(data, window) {
+            const result = [];
+            for (let i = 0; i < data.length; i++) {
+                if (i < window - 1) {
+                    result.push(NaN);
+                } else {
+                    let sum = 0;
+                    for (let j = i - window + 1; j <= i; j++) {
+                        sum += data[j];
+                    }
+                    result.push(sum / window);
+                }
+            }
+            return result;
+        }
+
+        function ema(data, window) {
+            const result = [];
+            const multiplier = 2 / (window + 1);
+            for (let i = 0; i < data.length; i++) {
+                if (i === 0) {
+                    result.push(data[i]);
+                } else {
+                    result.push((data[i] - result[i - 1]) * multiplier + result[i - 1]);
+                }
+            }
+            return result;
+        }
+
+        function rsi(data, window = 14) {
+            const result = [];
+            const gains = [];
+            const losses = [];
+
+            for (let i = 1; i < data.length; i++) {
+                const change = data[i] - data[i - 1];
+                gains.push(change > 0 ? change : 0);
+                losses.push(change < 0 ? -change : 0);
+            }
+
+            for (let i = 0; i < window; i++) {
+                result.push(NaN);
+            }
+
+            let avgGain = gains.slice(0, window).reduce((a, b) => a + b, 0) / window;
+            let avgLoss = losses.slice(0, window).reduce((a, b) => a + b, 0) / window;
+
+            for (let i = window; i < gains.length; i++) {
+                if (avgLoss === 0) {
+                    result.push(100);
+                } else {
+                    const rs = avgGain / avgLoss;
+                    result.push(100 - (100 / (1 + rs)));
+                }
+
+                avgGain = (avgGain * (window - 1) + gains[i]) / window;
+                avgLoss = (avgLoss * (window - 1) + losses[i]) / window;
+            }
+
+            return result;
+        }
+
+        function macd(data, fast = 12, slow = 26, signal = 9) {
+            const emaFast = ema(data, fast);
+            const emaSlow = ema(data, slow);
+            const macdLine = emaFast.map((val, i) => val - emaSlow[i]);
+            const signalLine = ema(macdLine, signal);
+            const histogram = macdLine.map((val, i) => val - signalLine[i]);
+            return { macdLine, signalLine, histogram };
+        }
+
+        function sidewaysMask(data, window = 10, threshold = 0.08) {
+            const result = [];
+            for (let i = 0; i < data.length; i++) {
+                if (i < window - 1) {
+                    result.push(false);
+                } else {
+                    const slice = data.slice(i - window + 1, i + 1);
+                    const max = Math.max(...slice);
+                    const min = Math.min(...slice);
+                    const mean = slice.reduce((a, b) => a + b, 0) / window;
+                    const rangePct = (max - min) / mean;
+                    result.push(rangePct < threshold);
+                }
+            }
+            return result;
+        }
+
+        function macdExtended(data, fast = 12, slow = 26, signal = 9, sidewaysWindow = 10, sidewaysThreshold = 0.08) {
+            const { macdLine, signalLine, histogram } = macd(data, fast, slow, signal);
+            const mask = sidewaysMask(data, sidewaysWindow, sidewaysThreshold);
+            
+            const macdExt = macdLine.map((val, i) => mask[i] ? 0 : val);
+            const signalExt = signalLine.map((val, i) => mask[i] ? 0 : val);
+            const histExt = histogram.map((val, i) => mask[i] ? 0 : val);
+            
+            return { macdLine: macdExt, signalLine: signalExt, histogram: histExt };
+        }
+
+        function bollingerBands(data, window = 20, numStd = 2.0) {
+            const smaValues = sma(data, window);
+            const result = { upper: [], middle: smaValues, lower: [] };
+
+            for (let i = 0; i < data.length; i++) {
+                if (i < window - 1) {
+                    result.upper.push(NaN);
+                    result.lower.push(NaN);
+                } else {
+                    const slice = data.slice(i - window + 1, i + 1);
+                    const mean = smaValues[i];
+                    const variance = slice.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / window;
+                    const stdDev = Math.sqrt(variance);
+                    result.upper.push(mean + (stdDev * numStd));
+                    result.lower.push(mean - (stdDev * numStd));
+                }
+            }
+
+            return result;
+        }
+
+        function atr(high, low, close, window = 14) {
+            const trueRanges = [];
+            for (let i = 1; i < close.length; i++) {
+                const tr = Math.max(
+                    high[i] - low[i],
+                    Math.abs(high[i] - close[i - 1]),
+                    Math.abs(low[i] - close[i - 1])
+                );
+                trueRanges.push(tr);
+            }
+
+            const result = new Array(close.length).fill(NaN);
+            for (let i = window; i < close.length; i++) {
+                const slice = trueRanges.slice(i - window, i);
+                result[i] = slice.reduce((a, b) => a + b, 0) / window;
+            }
+
+            return result;
+        }
+
+        function supertrend(high, low, close, period = 10, multiplier = 3.0) {
+            const atrValues = atr(high, low, close, period);
+            const hlAvg = high.map((h, i) => (h + low[i]) / 2);
+            
+            const upperBand = hlAvg.map((hl, i) => hl + (multiplier * (atrValues[i] || 0)));
+            const lowerBand = hlAvg.map((hl, i) => hl - (multiplier * (atrValues[i] || 0)));
+            
+            const supertrendValues = [];
+            const trendValues = [];
+
+            for (let i = 0; i < close.length; i++) {
+                if (i === 0) {
+                    supertrendValues.push(upperBand[i]);
+                    trendValues.push(1);
+                } else {
+                    // Adjust upper band
+                    if (close[i] <= upperBand[i - 1]) {
+                        upperBand[i] = Math.min(upperBand[i], upperBand[i - 1]);
+                    }
+                    // Adjust lower band
+                    if (close[i] >= lowerBand[i - 1]) {
+                        lowerBand[i] = Math.max(lowerBand[i], lowerBand[i - 1]);
+                    }
+                    // Determine trend
+                    if (close[i] <= supertrendValues[i - 1]) {
+                        supertrendValues.push(upperBand[i]);
+                        trendValues.push(-1);
+                    } else {
+                        supertrendValues.push(lowerBand[i]);
+                        trendValues.push(1);
+                    }
+                }
+            }
+
+            return { supertrend: supertrendValues, trend: trendValues };
+        }
+
+        function findFairValueGaps(ohlc) {
+            const fvgs = [];
+            
+            for (let i = 0; i < ohlc.length - 2; i++) {
+                const c1 = ohlc[i];
+                const c2 = ohlc[i + 1];
+                const c3 = ohlc[i + 2];
+
+                // Bullish FVG
+                if (c2.low > c1.high && c3.low <= c1.high && c3.high >= c1.low) {
+                    fvgs.push({
+                        type: 'bullish',
+                        start_date: c1.date,
+                        end_date: c3.date,
+                        gap_low: c1.high,
+                        gap_high: c2.low
+                    });
+                }
+                // Bearish FVG
+                else if (c2.high < c1.low && c3.high >= c1.low && c3.low <= c1.high) {
+                    fvgs.push({
+                        type: 'bearish',
+                        start_date: c1.date,
+                        end_date: c3.date,
+                        gap_low: c2.high,
+                        gap_high: c1.low
+                    });
+                }
+            }
+
+            return fvgs;
+        }
+
+        function calculateATRStopLoss(high, low, close, atrMultiplier = 2.0, isLong = true) {
+            if (high.length < 14 || low.length < 14 || close.length < 14) {
+                return 0;
+            }
+
+            const atrValues = atr(high, low, close, 14);
+            const currentATR = atrValues[atrValues.length - 1];
+            const currentPrice = close[close.length - 1];
+
+            if (isNaN(currentATR) || currentATR === 0) {
+                return 0;
+            }
+
+            if (isLong) {
+                return Math.max(0, currentPrice - (currentATR * atrMultiplier));
+            } else {
+                return currentPrice + (currentATR * atrMultiplier);
+            }
+        }
+
+        // Data fetching with multiple CORS proxy fallbacks
+        async function fetchYahooFinanceData(ticker, interval = '1d', period = 365) {
+            // Check if running from file:// protocol
+            if (window.location.protocol === 'file:') {
+                throw new Error(`CORS Error: This file cannot load data when opened directly from file:// protocol.\n\nPlease:\n1. Use a local web server (e.g., Python: python -m http.server 8000)\n2. Or use Alpha Vantage API (requires free API key from alphavantage.co)\n3. Or install a CORS browser extension`);
+            }
+            
+            const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=${interval}&range=${period}d`;
+            
+            // Try multiple CORS proxy options
+            const proxies = [
+                // Option 1: allorigins with /get endpoint (returns JSON with contents field)
+                { url: `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`, parser: (data) => {
+                    if (data.contents) return JSON.parse(data.contents);
+                    return data;
+                }},
+                // Option 2: corsproxy.io
+                { url: `https://corsproxy.io/?${encodeURIComponent(url)}`, parser: (data) => data },
+                // Option 3: thingproxy.freeboard.io
+                { url: `https://thingproxy.freeboard.io/fetch/${url}`, parser: (data) => data },
+                // Option 4: api.allorigins.win/raw (original)
+                { url: `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`, parser: (data) => data },
+            ];
+
+            let lastError = null;
+            
+            for (let i = 0; i < proxies.length; i++) {
+                try {
+                    const proxy = proxies[i];
+                    const response = await fetch(proxy.url, {
+                        method: 'GET',
+                        headers: {
+                            'Accept': 'application/json',
+                        }
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}`);
+                    }
+
+                    let data = await response.json();
+                    
+                    // Parse if needed
+                    if (proxy.parser) {
+                        data = proxy.parser(data);
+                    }
+                    
+                    if (!data.chart || !data.chart.result || !data.chart.result[0]) {
+                        throw new Error('Invalid data structure');
+                    }
+
+                    const result = data.chart.result[0];
+                    const timestamps = result.timestamp;
+                    const quote = result.indicators.quote[0];
+
+                    if (!timestamps || !quote) {
+                        throw new Error('Missing timestamp or quote data');
+                    }
+
+                    const ohlc = [];
+                    for (let i = 0; i < timestamps.length; i++) {
+                        if (quote.open[i] != null && quote.high[i] != null && quote.low[i] != null && quote.close[i] != null) {
+                            ohlc.push({
+                                date: new Date(timestamps[i] * 1000),
+                                open: quote.open[i],
+                                high: quote.high[i],
+                                low: quote.low[i],
+                                close: quote.close[i],
+                                volume: quote.volume[i] || 0
+                            });
+                        }
+                    }
+
+                    if (ohlc.length === 0) {
+                        throw new Error('No valid OHLC data');
+                    }
+
+                    console.log(`Successfully fetched data via proxy ${i + 1}`);
+                    return ohlc;
+                } catch (error) {
+                    console.warn(`Proxy ${i + 1} failed:`, error.message);
+                    lastError = error;
+                    // Continue to next proxy
+                    continue;
+                }
+            }
+
+            // All proxies failed
+            throw new Error(`All CORS proxies failed. Last error: ${lastError?.message || 'Unknown error'}. 
+Please try:
+1. Use Alpha Vantage API (requires free API key from alphavantage.co)
+2. Install a CORS browser extension (e.g., "CORS Unblock" or "Allow CORS")
+3. Run a local CORS proxy server`);
+        }
+
+        async function fetchAlphaVantageData(ticker, interval = '1d', apiKey) {
+            if (!apiKey) {
+                throw new Error('Alpha Vantage API key required. Get a free key at alphavantage.co');
+            }
+
+            let url, timeSeriesKey;
+            
+            // Use appropriate Alpha Vantage function based on interval
+            if (interval === '1d') {
+                url = `https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=${ticker}&apikey=${apiKey}&outputsize=full`;
+                timeSeriesKey = 'Time Series (Daily)';
+            } else if (interval === '1wk') {
+                url = `https://www.alphavantage.co/query?function=TIME_SERIES_WEEKLY&symbol=${ticker}&apikey=${apiKey}&outputsize=full`;
+                timeSeriesKey = 'Weekly Time Series';
+            } else if (interval === '1mo') {
+                url = `https://www.alphavantage.co/query?function=TIME_SERIES_MONTHLY&symbol=${ticker}&apikey=${apiKey}&outputsize=full`;
+                timeSeriesKey = 'Monthly Time Series';
+            } else {
+                // Intraday (5m, 15m, 1h)
+                const intervalMap = {
+                    '5m': '5min',
+                    '15m': '15min',
+                    '1h': '60min'
+                };
+                const avInterval = intervalMap[interval] || '5min';
+                url = `https://www.alphavantage.co/query?function=TIME_SERIES_INTRADAY&symbol=${ticker}&interval=${avInterval}&apikey=${apiKey}&outputsize=full`;
+                timeSeriesKey = `Time Series (${avInterval})`;
+            }
+
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+
+                // Check for API errors
+                if (data['Error Message']) {
+                    throw new Error(`Alpha Vantage Error: ${data['Error Message']}`);
+                }
+                if (data['Note']) {
+                    throw new Error(`Alpha Vantage API Limit: ${data['Note']}. Please wait a moment and try again.`);
+                }
+
+                if (!data[timeSeriesKey]) {
+                    throw new Error(`No time series data found. Available keys: ${Object.keys(data).join(', ')}`);
+                }
+
+                const timeSeries = data[timeSeriesKey];
+                const ohlc = [];
+
+                for (const [dateStr, values] of Object.entries(timeSeries)) {
+                    // Parse date - Alpha Vantage uses format like "2024-01-15" or "2024-01-15 16:00:00"
+                    let date = new Date(dateStr);
+                    if (isNaN(date.getTime())) {
+                        // Try parsing as timestamp if date string doesn't work
+                        date = new Date(dateStr.replace(/(\d{4})-(\d{2})-(\d{2})(?:\s+(\d{2}):(\d{2}):(\d{2}))?/, '$1-$2-$3T$4:$5:$6'));
+                    }
+                    
+                    ohlc.push({
+                        date: date,
+                        open: parseFloat(values['1. open'] || values['open']),
+                        high: parseFloat(values['2. high'] || values['high']),
+                        low: parseFloat(values['3. low'] || values['low']),
+                        close: parseFloat(values['4. close'] || values['close']),
+                        volume: parseFloat(values['5. volume'] || values['volume'] || 0)
+                    });
+                }
+
+                if (ohlc.length === 0) {
+                    throw new Error('No valid OHLC data returned');
+                }
+
+                return ohlc.sort((a, b) => a.date - b.date);
+            } catch (error) {
+                console.error('Alpha Vantage fetch error:', error);
+                throw error;
+            }
+        }
+
+        async function loadData() {
+            const ticker = document.getElementById('tickerInput').value.trim().toUpperCase();
+            if (!ticker) {
+                alert('Please enter a ticker symbol');
+                return;
+            }
+
+            currentTicker = ticker;
+            const dataSource = document.getElementById('dataSource').value;
+            const timeframe = document.getElementById('timeframe').value;
+            const periodDays = parseInt(document.getElementById('periodDays').value);
+            const loadingStatus = document.getElementById('loadingStatus');
+            
+            loadingStatus.style.display = 'block';
+            loadingStatus.textContent = 'Loading data...';
+
+            try {
+                let ohlc;
+                
+                if (dataSource === 'Alpha Vantage') {
+                    const apiKey = document.getElementById('apiKey').value.trim();
+                    ohlc = await fetchAlphaVantageData(ticker, timeframe, apiKey);
+                } else {
+                    ohlc = await fetchYahooFinanceData(ticker, timeframe, Math.min(periodDays, 365));
+                }
+
+                if (!ohlc || ohlc.length === 0) {
+                    throw new Error('No data received');
+                }
+
+                // Limit to 500 candles for 5m interval
+                if (timeframe === '5m' && ohlc.length > 500) {
+                    ohlc = ohlc.slice(-500);
+                }
+
+                currentData = ohlc;
+                renderChart();
+                updateMetrics();
+                loadingStatus.style.display = 'none';
+                saveSettings();
+            } catch (error) {
+                loadingStatus.style.display = 'none';
+                
+                // Show error but keep existing content
+                const errorHtml = `
+                    <div class="error" style="margin-bottom: 20px;">
+                        <h3 style="color: #f44336; margin-bottom: 10px;">Error Loading Data</h3>
+                        <p><strong>Error:</strong> ${error.message}</p>
+                        <hr style="margin: 15px 0; border-color: rgba(244, 67, 54, 0.3);">
+                        <h4 style="color: #00d4ff; margin-top: 15px; margin-bottom: 10px;">Solutions:</h4>
+                        <ol style="margin-left: 20px; line-height: 1.8;">
+                            <li><strong>Use Alpha Vantage API:</strong> Switch to "Alpha Vantage" data source and get a free API key from <a href="https://www.alphavantage.co/support/#api-key" target="_blank" style="color: #00d4ff;">alphavantage.co</a></li>
+                            <li><strong>Install CORS Extension:</strong> Install a browser extension like "CORS Unblock" or "Allow CORS: Access-Control-Allow-Origin"</li>
+                            <li><strong>Wait and Retry:</strong> Some CORS proxies may be temporarily unavailable - try again in a few seconds</li>
+                            <li><strong>Use Different Ticker:</strong> Try a different ticker symbol (e.g., SPY, AAPL, MSFT)</li>
+                        </ol>
+                    </div>
+                `;
+                
+                // Insert error at top of content, but keep existing chart if any
+                const tabContent = document.getElementById('tabContent');
+                if (tabContent.querySelector('#trackerTab')) {
+                    // Chart already exists, prepend error
+                    const trackerTab = tabContent.querySelector('#trackerTab');
+                    trackerTab.insertAdjacentHTML('afterbegin', errorHtml);
+                } else {
+                    // No chart yet, replace content
+                    tabContent.innerHTML = errorHtml + `
+                        <div id="trackerTab">
+                            <div class="chart-container" id="chart"></div>
+                            <div class="metrics" id="metrics"></div>
+                        </div>
+                    `;
+                }
+            }
+        }
+
+        // Chart rendering
+        function renderChart() {
+            if (!currentData || currentData.length === 0) return;
+
+            const theme = document.querySelector('input[name="theme"]:checked').value;
+            const isDark = theme === 'Dark';
+            const closePrices = currentData.map(d => d.close);
+            const dates = currentData.map(d => d.date);
+
+            // Calculate indicators
+            const sma20 = sma(closePrices, 20);
+            const sma200 = sma(closePrices, 200);
+            const ema20 = document.getElementById('showEMA').checked ? ema(closePrices, 20) : null;
+            const rsiValues = document.getElementById('showRSI').checked ? rsi(closePrices, 14) : null;
+            
+            const macdMode = document.querySelector('input[name="macdMode"]:checked').value;
+            const macdWindow = parseInt(document.getElementById('macdSidewaysWindow').value);
+            const macdThreshold = parseFloat(document.getElementById('macdSidewaysThreshold').value) / 100;
+            const macdData = document.getElementById('showMACD').checked ? 
+                (macdMode === 'Extended' ? 
+                    macdExtended(closePrices, 12, 26, 9, macdWindow, macdThreshold) : 
+                    macd(closePrices, 12, 26, 9)) : null;
+
+            const bbData = document.getElementById('showBollinger').checked ? bollingerBands(closePrices, 20, 2.0) : null;
+            
+            const high = currentData.map(d => d.high);
+            const low = currentData.map(d => d.low);
+            const supertrendData = document.getElementById('showSupertrend').checked ? 
+                supertrend(high, low, closePrices, 10, 3.0) : null;
+
+            const fvgs = document.getElementById('showFVG').checked ? findFairValueGaps(currentData) : [];
+
+            // Create traces
+            const traces = [];
+
+            // Candlestick
+            traces.push({
+                x: dates,
+                open: currentData.map(d => d.open),
+                high: currentData.map(d => d.high),
+                low: currentData.map(d => d.low),
+                close: currentData.map(d => d.close),
+                type: 'candlestick',
+                name: 'Price',
+                increasing: { line: { color: '#00ff88' } },
+                decreasing: { line: { color: '#f44336' } }
+            });
+
+            // SMA 20
+            if (document.getElementById('showSMA20').checked) {
+                traces.push({
+                    x: dates,
+                    y: sma20,
+                    type: 'scatter',
+                    mode: 'lines',
+                    name: 'SMA 20',
+                    line: { color: '#4fa3ff', width: 2 }
+                });
+            }
+
+            // SMA 200
+            if (document.getElementById('showSMA200').checked) {
+                traces.push({
+                    x: dates,
+                    y: sma200,
+                    type: 'scatter',
+                    mode: 'lines',
+                    name: 'SMA 200',
+                    line: { color: '#ff6b6b', width: 2 }
+                });
+            }
+
+            // EMA 20
+            if (ema20) {
+                traces.push({
+                    x: dates,
+                    y: ema20,
+                    type: 'scatter',
+                    mode: 'lines',
+                    name: 'EMA 20',
+                    line: { color: '#00ff88', width: 2, dash: 'dot' }
+                });
+            }
+
+            // Bollinger Bands
+            if (bbData) {
+                traces.push({
+                    x: dates,
+                    y: bbData.upper,
+                    type: 'scatter',
+                    mode: 'lines',
+                    name: 'BB Upper',
+                    line: { color: '#888', width: 1 },
+                    showlegend: false
+                });
+                traces.push({
+                    x: dates,
+                    y: bbData.middle,
+                    type: 'scatter',
+                    mode: 'lines',
+                    name: 'BB Middle',
+                    line: { color: '#888', width: 1 }
+                });
+                traces.push({
+                    x: dates,
+                    y: bbData.lower,
+                    type: 'scatter',
+                    mode: 'lines',
+                    name: 'BB Lower',
+                    line: { color: '#888', width: 1 },
+                    showlegend: false
+                });
+            }
+
+            // Supertrend
+            if (supertrendData) {
+                const supertrendLine = supertrendData.supertrend;
+                const uptrendDates = [];
+                const uptrendValues = [];
+                const downtrendDates = [];
+                const downtrendValues = [];
+
+                for (let i = 0; i < supertrendLine.length; i++) {
+                    if (!isNaN(supertrendLine[i])) {
+                        if (supertrendData.trend[i] > 0) {
+                            uptrendDates.push(dates[i]);
+                            uptrendValues.push(supertrendLine[i]);
+                        } else {
+                            downtrendDates.push(dates[i]);
+                            downtrendValues.push(supertrendLine[i]);
+                        }
+                    }
+                }
+
+                if (uptrendDates.length > 0) {
+                    traces.push({
+                        x: uptrendDates,
+                        y: uptrendValues,
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: 'Supertrend (Bullish)',
+                        line: { color: '#00ff88', width: 2 }
+                    });
+                }
+
+                if (downtrendDates.length > 0) {
+                    traces.push({
+                        x: downtrendDates,
+                        y: downtrendValues,
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: 'Supertrend (Bearish)',
+                        line: { color: '#f44336', width: 2 }
+                    });
+                }
+            }
+
+            // Fair Value Gaps (as shapes)
+            const shapes = [];
+            fvgs.forEach(fvg => {
+                const color = fvg.type === 'bullish' ? 'rgba(0, 255, 136, 0.2)' : 'rgba(244, 67, 54, 0.2)';
+                shapes.push({
+                    type: 'rect',
+                    xref: 'x',
+                    yref: 'y',
+                    x0: fvg.start_date,
+                    x1: fvg.end_date,
+                    y0: fvg.gap_low,
+                    y1: fvg.gap_high,
+                    fillcolor: color,
+                    line: { width: 0 },
+                    layer: 'below'
+                });
+            });
+
+            // Detect crosses
+            const goldenCrosses = [];
+            const deathCrosses = [];
+            for (let i = 1; i < dates.length; i++) {
+                if (!isNaN(sma20[i]) && !isNaN(sma200[i]) && 
+                    !isNaN(sma20[i-1]) && !isNaN(sma200[i-1])) {
+                    if (sma20[i-1] <= sma200[i-1] && sma20[i] > sma200[i]) {
+                        goldenCrosses.push({ x: dates[i], y: closePrices[i] });
+                    }
+                    if (sma20[i-1] >= sma200[i-1] && sma20[i] < sma200[i]) {
+                        deathCrosses.push({ x: dates[i], y: closePrices[i] });
+                    }
+                }
+            }
+
+            if (goldenCrosses.length > 0) {
+                traces.push({
+                    x: goldenCrosses.map(c => c.x),
+                    y: goldenCrosses.map(c => c.y),
+                    type: 'scatter',
+                    mode: 'markers',
+                    name: 'Golden Cross',
+                    marker: { symbol: 'triangle-up', size: 25, color: '#17c964', line: { width: 1, color: '#0b3820' } }
+                });
+            }
+
+            if (deathCrosses.length > 0) {
+                traces.push({
+                    x: deathCrosses.map(c => c.x),
+                    y: deathCrosses.map(c => c.y),
+                    type: 'scatter',
+                    mode: 'markers',
+                    name: 'Death Cross',
+                    marker: { symbol: 'triangle-down', size: 25, color: '#f31260', line: { width: 1, color: '#4a0b19' } }
+                });
+            }
+
+            // Volume subplot
+            let volumeTrace = null;
+            if (document.getElementById('showVolume').checked) {
+                volumeTrace = {
+                    x: dates,
+                    y: currentData.map(d => d.volume),
+                    type: 'bar',
+                    name: 'Volume',
+                    marker: { color: 'rgba(0, 212, 255, 0.5)' }
+                };
+            }
+
+            // RSI subplot
+            let rsiTrace = null;
+            if (rsiValues) {
+                rsiTrace = {
+                    x: dates,
+                    y: rsiValues,
+                    type: 'scatter',
+                    mode: 'lines',
+                    name: 'RSI',
+                    line: { color: '#ff9800', width: 2 }
+                };
+            }
+
+            // MACD subplot
+            let macdTraces = [];
+            if (macdData) {
+                macdTraces = [
+                    {
+                        x: dates,
+                        y: macdData.macdLine,
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: 'MACD',
+                        line: { color: '#00d4ff', width: 2 }
+                    },
+                    {
+                        x: dates,
+                        y: macdData.signalLine,
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: 'Signal',
+                        line: { color: '#ff9800', width: 2 }
+                    },
+                    {
+                        x: dates,
+                        y: macdData.histogram,
+                        type: 'bar',
+                        name: 'Histogram',
+                        marker: { color: macdData.histogram.map(h => h >= 0 ? '#00ff88' : '#f44336') }
+                    }
+                ];
+            }
+
+            // Create subplots
+            const rows = 1 + (volumeTrace ? 1 : 0) + (rsiTrace ? 1 : 0) + (macdTraces.length > 0 ? 1 : 0);
+            const specs = [{ rows: 2, cols: 1 }];
+            if (volumeTrace) specs.push({ rows: 1, cols: 1 });
+            if (rsiTrace) specs.push({ rows: 1, cols: 1 });
+            if (macdTraces.length > 0) specs.push({ rows: 1, cols: 1 });
+
+            // Add trade visualization shapes if trade params exist
+            if (tradeParams && tradeParams.entry && tradeParams.stopLoss && tradeParams.target) {
+                const startDate = dates[0];
+                const endDate = dates[dates.length - 1];
+                const direction = tradeParams.direction;
+                const entry = tradeParams.entry;
+                const stopLoss = tradeParams.stopLoss;
+                const target = tradeParams.target;
+
+                if (direction === 'LONG') {
+                    // Red rectangle (risk zone: stop_loss to entry)
+                    shapes.push({
+                        type: 'rect',
+                        xref: 'x',
+                        yref: 'y',
+                        x0: startDate,
+                        y0: stopLoss,
+                        x1: endDate,
+                        y1: entry,
+                        fillcolor: 'rgba(243, 18, 96, 0.2)',
+                        line: { color: '#f31260', width: 1, dash: 'dot' },
+                        layer: 'below'
+                    });
+                    // Green rectangle (reward zone: entry to target)
+                    shapes.push({
+                        type: 'rect',
+                        xref: 'x',
+                        yref: 'y',
+                        x0: startDate,
+                        y0: entry,
+                        x1: endDate,
+                        y1: target,
+                        fillcolor: 'rgba(0, 255, 136, 0.2)',
+                        line: { color: '#00ff88', width: 1, dash: 'dot' },
+                        layer: 'below'
+                    });
+                } else if (direction === 'SHORT') {
+                    // Red rectangle (risk zone: entry to stop_loss)
+                    shapes.push({
+                        type: 'rect',
+                        xref: 'x',
+                        yref: 'y',
+                        x0: startDate,
+                        y0: entry,
+                        x1: endDate,
+                        y1: stopLoss,
+                        fillcolor: 'rgba(243, 18, 96, 0.2)',
+                        line: { color: '#f31260', width: 1, dash: 'dot' },
+                        layer: 'below'
+                    });
+                    // Green rectangle (reward zone: target to entry)
+                    shapes.push({
+                        type: 'rect',
+                        xref: 'x',
+                        yref: 'y',
+                        x0: startDate,
+                        y0: target,
+                        x1: endDate,
+                        y1: entry,
+                        fillcolor: 'rgba(0, 255, 136, 0.2)',
+                        line: { color: '#00ff88', width: 1, dash: 'dot' },
+                        layer: 'below'
+                    });
+                }
+
+                // Add horizontal lines for entry, stop loss, and target
+                traces.push({
+                    x: [startDate, endDate],
+                    y: [entry, entry],
+                    type: 'scatter',
+                    mode: 'lines',
+                    name: `Entry: $${entry.toFixed(2)}`,
+                    line: { color: '#00ff88', width: 2, dash: 'solid' },
+                    showlegend: true,
+                    hoverinfo: 'y',
+                    hovertemplate: `Entry: $${entry.toFixed(2)}<extra></extra>`
+                });
+
+                traces.push({
+                    x: [startDate, endDate],
+                    y: [stopLoss, stopLoss],
+                    type: 'scatter',
+                    mode: 'lines',
+                    name: `Stop Loss: $${stopLoss.toFixed(2)}`,
+                    line: { color: '#ff4444', width: 1.5, dash: 'dot' },
+                    showlegend: true,
+                    hoverinfo: 'y',
+                    hovertemplate: `Stop Loss: $${stopLoss.toFixed(2)}<extra></extra>`
+                });
+
+                traces.push({
+                    x: [startDate, endDate],
+                    y: [target, target],
+                    type: 'scatter',
+                    mode: 'lines',
+                    name: `Target: $${target.toFixed(2)}`,
+                    line: { color: '#00ff88', width: 1.5, dash: 'dot' },
+                    showlegend: true,
+                    hoverinfo: 'y',
+                    hovertemplate: `Target: $${target.toFixed(2)}<extra></extra>`
+                });
+            }
+
+            const layout = {
+                template: isDark ? 'plotly_dark' : 'plotly_white',
+                title: `${currentTicker} - ${document.getElementById('timeframe').value}`,
+                xaxis: { title: 'Date' },
+                yaxis: { title: 'Price' },
+                shapes: shapes,
+                hovermode: 'x unified',
+                height: 600,
+                // Set black background for dark mode
+                plot_bgcolor: isDark ? '#000000' : '#ffffff',
+                paper_bgcolor: isDark ? '#000000' : '#ffffff'
+            };
+
+            // Use subplots if we have multiple indicators
+            const chartElement = document.getElementById('chart');
+            if (!chartElement) {
+                console.warn('Chart element not found');
+                return;
+            }
+
+            // Purge any existing plot to prevent duplicates
+            Plotly.purge(chartElement);
+            
+            // Clear any existing content in chart element (in case of leftover divs)
+            chartElement.innerHTML = '';
+
+            // Build all traces for subplots
+            const allTraces = [];
+            
+            // Main price chart (row 1)
+            allTraces.push(...traces);
+            
+            // Volume subplot (row 2)
+            if (volumeTrace) {
+                allTraces.push(volumeTrace);
+            }
+            
+            // RSI subplot
+            if (rsiTrace) {
+                allTraces.push(rsiTrace);
+            }
+            
+            // MACD subplot
+            if (macdTraces.length > 0) {
+                allTraces.push(...macdTraces);
+            }
+
+            if (rows > 1) {
+                // Configure subplot axes
+                const subplotAxes = {};
+                let currentRow = 1;
+                
+                // Main price chart uses xaxis and yaxis
+                subplotAxes['xaxis'] = { ...layout.xaxis };
+                subplotAxes['yaxis'] = { ...layout.yaxis };
+                
+                // Volume subplot
+                if (volumeTrace) {
+                    currentRow++;
+                    subplotAxes[`xaxis${currentRow}`] = { ...layout.xaxis };
+                    subplotAxes[`yaxis${currentRow}`] = { title: 'Volume' };
+                }
+                
+                // RSI subplot
+                if (rsiTrace) {
+                    currentRow++;
+                    subplotAxes[`xaxis${currentRow}`] = { ...layout.xaxis };
+                    subplotAxes[`yaxis${currentRow}`] = { title: 'RSI', range: [0, 100] };
+                }
+                
+                // MACD subplot
+                if (macdTraces.length > 0) {
+                    currentRow++;
+                    subplotAxes[`xaxis${currentRow}`] = { ...layout.xaxis };
+                    subplotAxes[`yaxis${currentRow}`] = { title: 'MACD' };
+                }
+                
+                layout = {
+                    ...layout,
+                    ...subplotAxes,
+                    grid: { 
+                        rows: rows, 
+                        columns: 1, 
+                        pattern: 'independent',
+                        roworder: 'top to bottom'
+                    }
+                };
+                
+                // Assign traces to subplots
+                let traceIndex = 0;
+                // Main chart traces go to row 1
+                const mainChartTraceCount = traces.length;
+                for (let i = 0; i < mainChartTraceCount; i++) {
+                    allTraces[traceIndex].xaxis = 'x';
+                    allTraces[traceIndex].yaxis = 'y';
+                    traceIndex++;
+                }
+                
+                currentRow = 1;
+                // Volume
+                if (volumeTrace) {
+                    currentRow++;
+                    allTraces[traceIndex].xaxis = `x${currentRow}`;
+                    allTraces[traceIndex].yaxis = `y${currentRow}`;
+                    traceIndex++;
+                }
+                
+                // RSI
+                if (rsiTrace) {
+                    currentRow++;
+                    allTraces[traceIndex].xaxis = `x${currentRow}`;
+                    allTraces[traceIndex].yaxis = `y${currentRow}`;
+                    traceIndex++;
+                }
+                
+                // MACD
+                if (macdTraces.length > 0) {
+                    currentRow++;
+                    for (let i = 0; i < macdTraces.length; i++) {
+                        allTraces[traceIndex].xaxis = `x${currentRow}`;
+                        allTraces[traceIndex].yaxis = `y${currentRow}`;
+                        traceIndex++;
+                    }
+                }
+                
+                Plotly.newPlot(chartElement, allTraces, layout, {responsive: true});
+            } else {
+                // Single chart - no subplots needed
+                Plotly.newPlot(chartElement, traces, layout, {responsive: true});
+            }
+        }
+
+        function updateMetrics() {
+            if (!currentData || currentData.length === 0) return;
+
+            const last = currentData[currentData.length - 1];
+            const closePrices = currentData.map(d => d.close);
+            const sma20Values = sma(closePrices, 20);
+            const sma200Values = sma(closePrices, 200);
+            
+            const currentPrice = last.close;
+            const sma20Val = sma20Values[sma20Values.length - 1];
+            const sma200Val = sma200Values[sma200Values.length - 1];
+            
+            const distToSMA20 = ((currentPrice - sma20Val) / sma20Val * 100).toFixed(2);
+            const distToSMA200 = ((currentPrice - sma200Val) / sma200Val * 100).toFixed(2);
+            
+            const trend = sma20Val > sma200Val ? 'Bullish' : 'Bearish';
+            
+            document.getElementById('metrics').innerHTML = `
+                <div class="metric">
+                    <div class="metric-label">Current Price</div>
+                    <div class="metric-value">$${currentPrice.toFixed(2)}</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-label">SMA 20</div>
+                    <div class="metric-value">$${sma20Val.toFixed(2)}</div>
+                    <div class="metric-delta">${distToSMA20 > 0 ? '+' : ''}${distToSMA20}%</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-label">SMA 200</div>
+                    <div class="metric-value">$${sma200Val.toFixed(2)}</div>
+                    <div class="metric-delta">${distToSMA200 > 0 ? '+' : ''}${distToSMA200}%</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-label">Trend</div>
+                    <div class="metric-value">${trend}</div>
+                </div>
+            `;
+        }
+
+        // AI Recommendation
+        function generateAIRecommendation() {
+            if (!currentData || currentData.length < 200) {
+                alert('Insufficient data for AI analysis. Need at least 200 data points.');
+                return;
+            }
+
+            const closePrices = currentData.map(d => d.close);
+            const high = currentData.map(d => d.high);
+            const low = currentData.map(d => d.low);
+            
+            const sma20Values = sma(closePrices, 20);
+            const sma200Values = sma(closePrices, 200);
+            const rsiValues = rsi(closePrices, 14);
+            
+            const macdMode = document.querySelector('input[name="macdMode"]:checked').value;
+            const macdWindow = parseInt(document.getElementById('macdSidewaysWindow').value);
+            const macdThreshold = parseFloat(document.getElementById('macdSidewaysThreshold').value) / 100;
+            const macdData = macdMode === 'Extended' ? 
+                macdExtended(closePrices, 12, 26, 9, macdWindow, macdThreshold) : 
+                macd(closePrices, 12, 26, 9);
+            
+            const supertrendData = supertrend(high, low, closePrices, 10, 3.0);
+            const fvgs = findFairValueGaps(currentData);
+
+            // Get last values
+            const lastIdx = closePrices.length - 1;
+            const prevIdx = lastIdx - 1;
+            const currentPrice = closePrices[lastIdx];
+            const sma20Val = sma20Values[lastIdx];
+            const sma200Val = sma200Values[lastIdx];
+            const rsiVal = rsiValues[lastIdx] || 50;
+            const macdVal = macdData.macdLine[lastIdx] || 0;
+            const signalVal = macdData.signalLine[lastIdx] || 0;
+            const macdHist = macdData.histogram[lastIdx] || 0;
+            const trendCurrent = supertrendData.trend[lastIdx];
+
+            // Scoring
+            let totalScore = 0;
+            const analysis = [];
+
+            // SMA Analysis
+            if (document.getElementById('useSMA_AI').checked) {
+                let smaScore = 0;
+                if (sma20Val > sma200Val) {
+                    smaScore = sma20Values[prevIdx] <= sma200Values[prevIdx] ? 3 : 2;
+                    analysis.push({ indicator: 'SMA', status: smaScore === 3 ? 'Golden Cross!' : 'Bullish', score: smaScore });
+                } else {
+                    smaScore = sma20Values[prevIdx] >= sma200Values[prevIdx] ? -3 : -2;
+                    analysis.push({ indicator: 'SMA', status: smaScore === -3 ? 'Death Cross!' : 'Bearish', score: smaScore });
+                }
+                totalScore += smaScore;
+            }
+
+            // RSI Analysis
+            if (document.getElementById('useRSI_AI').checked) {
+                let rsiScore = 0;
+                if (rsiVal < 30) {
+                    rsiScore = 2;
+                    analysis.push({ indicator: 'RSI', status: 'Oversold', score: rsiScore });
+                } else if (rsiVal > 70) {
+                    rsiScore = -2;
+                    analysis.push({ indicator: 'RSI', status: 'Overbought', score: rsiScore });
+                } else if (rsiVal <= 50) {
+                    rsiScore = 1;
+                    analysis.push({ indicator: 'RSI', status: 'Neutral-Bullish', score: rsiScore });
+                } else {
+                    rsiScore = -1;
+                    analysis.push({ indicator: 'RSI', status: 'Neutral-Bearish', score: rsiScore });
+                }
+                totalScore += rsiScore;
+            }
+
+            // MACD Analysis
+            if (document.getElementById('useMACD_AI').checked) {
+                let macdScore = 0;
+                const macdAboveSignal = macdVal > signalVal;
+                const macdAboveSignalPrev = macdData.macdLine[prevIdx] > macdData.signalLine[prevIdx];
+                
+                if (macdAboveSignal && !macdAboveSignalPrev) {
+                    macdScore = 3;
+                    analysis.push({ indicator: 'MACD', status: 'Bullish Crossover!', score: macdScore });
+                } else if (!macdAboveSignal && macdAboveSignalPrev) {
+                    macdScore = -3;
+                    analysis.push({ indicator: 'MACD', status: 'Bearish Crossover!', score: macdScore });
+                } else if (macdAboveSignal) {
+                    macdScore = macdHist > 0 ? 2 : 1;
+                    analysis.push({ indicator: 'MACD', status: 'Bullish', score: macdScore });
+                } else {
+                    macdScore = macdHist < 0 ? -2 : -1;
+                    analysis.push({ indicator: 'MACD', status: 'Bearish', score: macdScore });
+                }
+                totalScore += macdScore;
+            }
+
+            // Supertrend Analysis
+            if (document.getElementById('useSupertrend_AI').checked) {
+                let supertrendScore = 0;
+                if (trendCurrent > 0) {
+                    supertrendScore = supertrendData.trend[prevIdx] <= 0 ? 3 : 2;
+                    analysis.push({ indicator: 'Supertrend', status: 'Bullish', score: supertrendScore });
+                } else {
+                    supertrendScore = supertrendData.trend[prevIdx] >= 0 ? -3 : -2;
+                    analysis.push({ indicator: 'Supertrend', status: 'Bearish', score: supertrendScore });
+                }
+                totalScore += supertrendScore;
+            }
+
+            // FVG Analysis
+            if (document.getElementById('useFVG_AI').checked) {
+                const recentFvgs = fvgs.slice(-3);
+                const bullishFvgs = recentFvgs.filter(f => f.type === 'bullish');
+                const bearishFvgs = recentFvgs.filter(f => f.type === 'bearish');
+                
+                let fvgScore = bullishFvgs.length > bearishFvgs.length ? 1 : (bearishFvgs.length > bullishFvgs.length ? -1 : 0);
+                totalScore += fvgScore;
+                analysis.push({ indicator: 'FVG', status: `${bullishFvgs.length} bullish, ${bearishFvgs.length} bearish`, score: fvgScore });
+            }
+
+            // Determine recommendation
+            let recommendation, direction, confidence;
+            if (totalScore >= 5) {
+                recommendation = 'STRONG LONG';
+                direction = 'LONG';
+                confidence = 'HIGH';
+            } else if (totalScore >= 2) {
+                recommendation = 'LONG';
+                direction = 'LONG';
+                confidence = 'MEDIUM';
+            } else if (totalScore <= -5) {
+                recommendation = 'STRONG SHORT';
+                direction = 'SHORT';
+                confidence = 'HIGH';
+            } else if (totalScore <= -2) {
+                recommendation = 'SHORT';
+                direction = 'SHORT';
+                confidence = 'MEDIUM';
+            } else {
+                recommendation = 'NEUTRAL';
+                direction = 'NEUTRAL';
+                confidence = 'LOW';
+            }
+
+            // Calculate trade parameters (entry, stop loss, target)
+            const entryPrice = currentPrice;
+            const atrStop = calculateATRStopLoss(high, low, closePrices, 2.0, direction === 'LONG');
+            
+            let stopLoss, targetPrice;
+            
+            if (direction === 'LONG') {
+                // For long positions
+                stopLoss = Math.min(atrStop || (currentPrice * 0.95), currentPrice * 0.95); // Use ATR or 5% whichever is closer
+                targetPrice = currentPrice * 1.10; // 10% target initially
+                
+                // Ensure minimum 2:1 risk/reward
+                const risk = Math.abs(entryPrice - stopLoss);
+                const reward = Math.abs(targetPrice - entryPrice);
+                if (reward / risk < 2.0 && risk > 0) {
+                    targetPrice = entryPrice + (risk * 2.0);
+                }
+            } else if (direction === 'SHORT') {
+                // For short positions
+                stopLoss = Math.max(atrStop || (currentPrice * 1.05), currentPrice * 1.05); // Use ATR or 5% whichever is closer
+                targetPrice = currentPrice * 0.90; // 10% target initially
+                
+                // Ensure minimum 2:1 risk/reward
+                const risk = Math.abs(stopLoss - entryPrice);
+                const reward = Math.abs(entryPrice - targetPrice);
+                if (reward / risk < 2.0 && risk > 0) {
+                    targetPrice = entryPrice - (risk * 2.0);
+                }
+            } else {
+                // Neutral/Hold
+                stopLoss = currentPrice * 0.95;
+                targetPrice = currentPrice * 1.05;
+            }
+
+            // Store trade parameters for chart visualization
+            if (direction !== 'NEUTRAL') {
+                tradeParams = {
+                    entry: entryPrice,
+                    stopLoss: stopLoss,
+                    target: targetPrice,
+                    direction: direction
+                };
+            } else {
+                tradeParams = null;
+            }
+
+            // Calculate risk/reward ratio
+            let risk, reward, riskRewardRatio;
+            if (direction === 'LONG') {
+                risk = Math.abs(entryPrice - stopLoss);
+                reward = Math.abs(targetPrice - entryPrice);
+                riskRewardRatio = reward / risk;
+            } else if (direction === 'SHORT') {
+                risk = Math.abs(stopLoss - entryPrice);
+                reward = Math.abs(entryPrice - targetPrice);
+                riskRewardRatio = reward / risk;
+            } else {
+                risk = 0;
+                reward = 0;
+                riskRewardRatio = 0;
+            }
+
+            // Display recommendation
+            const signalClass = direction === 'LONG' ? 'signal-long' : (direction === 'SHORT' ? 'signal-short' : 'signal-neutral');
+            document.getElementById('tabContent').innerHTML = `
+                <div class="ai-recommendation">
+                    <h3>AI Recommendation</h3>
+                    <div style="font-size: 24px; margin-bottom: 20px;">
+                        <span class="signal-badge ${signalClass}">${recommendation}</span>
+                        <span style="color: #b0b0b0; margin-left: 10px;">Confidence: ${confidence}</span>
+                    </div>
+                    <div style="margin-bottom: 15px;"><strong>Total Score:</strong> ${totalScore}</div>
+                    <div><strong>Analysis Breakdown:</strong></div>
+                    <ul style="margin-top: 10px;">
+                        ${analysis.map(a => `<li>${a.indicator}: ${a.status} (Score: ${a.score > 0 ? '+' : ''}${a.score})</li>`).join('')}
+                    </ul>
+                    <div style="margin-top: 20px;">
+                        <strong>Current Price:</strong> $${currentPrice.toFixed(2)}<br>
+                        <strong>SMA 20:</strong> $${sma20Val.toFixed(2)}<br>
+                        <strong>SMA 200:</strong> $${sma200Val.toFixed(2)}<br>
+                        <strong>RSI:</strong> ${rsiVal.toFixed(1)}
+                    </div>
+                    ${direction !== 'NEUTRAL' ? `
+                    <div style="margin-top: 20px; padding: 15px; background: rgba(0, 212, 255, 0.1); border-left: 4px solid #00d4ff; border-radius: 6px;">
+                        <h4 style="color: #00d4ff; margin-bottom: 10px;">Trade Parameters</h4>
+                        <strong>Entry:</strong> $${entryPrice.toFixed(2)}<br>
+                        <strong>Stop Loss:</strong> $${stopLoss.toFixed(2)}<br>
+                        <strong>Target:</strong> $${targetPrice.toFixed(2)}<br>
+                        <strong>Risk:</strong> $${risk.toFixed(2)} (${((risk / entryPrice) * 100).toFixed(2)}%)<br>
+                        <strong>Reward:</strong> $${reward.toFixed(2)} (${((reward / entryPrice) * 100).toFixed(2)}%)<br>
+                        <strong>Risk/Reward Ratio:</strong> ${riskRewardRatio.toFixed(2)}:1
+                    </div>
+                    ` : ''}
+                    <button onclick="switchTab(0)" style="margin-top: 20px;">View Chart with Trade Zones</button>
+                </div>
+            `;
+            
+            // Don't re-render chart here - let user click "View Chart with Trade Zones" button
+            // The chart will be rendered when they switch to the tracker tab
+        }
+
+        // Tab switching
+        function switchTab(index) {
+            document.querySelectorAll('.tab').forEach((tab, i) => {
+                tab.classList.toggle('active', i === index);
+            });
+
+            if (index === 0) {
+                // Ensure tracker tab exists
+                let trackerTab = document.getElementById('tabContent').querySelector('#trackerTab');
+                if (!trackerTab) {
+                    document.getElementById('tabContent').innerHTML = `
+                        <div id="trackerTab">
+                            <div class="chart-container" id="chart"></div>
+                            <div class="metrics" id="metrics"></div>
+                        </div>
+                    `;
+                } else {
+                    // Clear any error messages but keep chart container
+                    const errors = trackerTab.querySelectorAll('.error');
+                    errors.forEach(e => e.remove());
+                    // Ensure chart container exists
+                    if (!trackerTab.querySelector('#chart')) {
+                        const metricsDiv = trackerTab.querySelector('#metrics');
+                        const chartContainer = document.createElement('div');
+                        chartContainer.className = 'chart-container';
+                        chartContainer.id = 'chart';
+                        if (metricsDiv) {
+                            trackerTab.insertBefore(chartContainer, metricsDiv);
+                        } else {
+                            trackerTab.appendChild(chartContainer);
+                        }
+                    }
+                }
+                if (currentData) {
+                    // Small delay to ensure DOM is ready
+                    setTimeout(() => {
+                        renderChart();
+                        updateMetrics();
+                    }, 50);
+                }
+            } else if (index === 1) {
+                if (currentData) {
+                    generateAIRecommendation();
+                } else {
+                    document.getElementById('tabContent').innerHTML = '<div class="info-box">Please load data first.</div>';
+                }
+            } else if (index === 2) {
+                document.getElementById('tabContent').innerHTML = '<div class="info-box">Indicators can be toggled in the sidebar.</div>';
+            }
+        }
+
+        // Settings persistence
+        function saveSettings() {
+            const settings = {
+                ticker: currentTicker,
+                mode: document.querySelector('input[name="mode"]:checked').value,
+                dataSource: document.getElementById('dataSource').value,
+                apiKey: document.getElementById('apiKey').value,
+                theme: document.querySelector('input[name="theme"]:checked').value,
+                timeframe: document.getElementById('timeframe').value,
+                periodDays: document.getElementById('periodDays').value,
+                showSMA20: document.getElementById('showSMA20').checked,
+                showSMA200: document.getElementById('showSMA200').checked,
+                showEMA: document.getElementById('showEMA').checked,
+                showVolume: document.getElementById('showVolume').checked,
+                showRSI: document.getElementById('showRSI').checked,
+                showMACD: document.getElementById('showMACD').checked,
+                macdMode: document.querySelector('input[name="macdMode"]:checked').value,
+                macdSidewaysWindow: document.getElementById('macdSidewaysWindow').value,
+                macdSidewaysThreshold: document.getElementById('macdSidewaysThreshold').value,
+                showBollinger: document.getElementById('showBollinger').checked,
+                showSupertrend: document.getElementById('showSupertrend').checked,
+                showFVG: document.getElementById('showFVG').checked
+            };
+            localStorage.setItem('traderqSettings', JSON.stringify(settings));
+        }
+
+        function loadSettings() {
+            const saved = localStorage.getItem('traderqSettings');
+            if (saved) {
+                const settings = JSON.parse(saved);
+                if (settings.ticker) document.getElementById('tickerInput').value = settings.ticker;
+                if (settings.mode) document.querySelector(`input[name="mode"][value="${settings.mode}"]`).checked = true;
+                if (settings.dataSource) document.getElementById('dataSource').value = settings.dataSource;
+                if (settings.apiKey) document.getElementById('apiKey').value = settings.apiKey;
+                if (settings.theme) document.querySelector(`input[name="theme"][value="${settings.theme}"]`).checked = true;
+                if (settings.timeframe) document.getElementById('timeframe').value = settings.timeframe;
+                if (settings.periodDays) document.getElementById('periodDays').value = settings.periodDays;
+                if (settings.showSMA20 !== undefined) document.getElementById('showSMA20').checked = settings.showSMA20;
+                if (settings.showSMA200 !== undefined) document.getElementById('showSMA200').checked = settings.showSMA200;
+                if (settings.showEMA !== undefined) document.getElementById('showEMA').checked = settings.showEMA;
+                if (settings.showVolume !== undefined) document.getElementById('showVolume').checked = settings.showVolume;
+                if (settings.showRSI !== undefined) document.getElementById('showRSI').checked = settings.showRSI;
+                if (settings.showMACD !== undefined) document.getElementById('showMACD').checked = settings.showMACD;
+                if (settings.macdMode) document.querySelector(`input[name="macdMode"][value="${settings.macdMode}"]`).checked = true;
+                if (settings.macdSidewaysWindow) document.getElementById('macdSidewaysWindow').value = settings.macdSidewaysWindow;
+                if (settings.macdSidewaysThreshold) document.getElementById('macdSidewaysThreshold').value = settings.macdSidewaysThreshold;
+                if (settings.showBollinger !== undefined) document.getElementById('showBollinger').checked = settings.showBollinger;
+                if (settings.showSupertrend !== undefined) document.getElementById('showSupertrend').checked = settings.showSupertrend;
+                if (settings.showFVG !== undefined) document.getElementById('showFVG').checked = settings.showFVG;
+            }
+        }
+
+        // Event listeners
+        document.getElementById('showMACD').addEventListener('change', function() {
+            document.getElementById('macdModeContainer').style.display = this.checked ? 'block' : 'none';
+        });
+
+        // Helper function to download text as file
+        function downloadFile(filename, text, mimeType = 'text/plain') {
+            const blob = new Blob([text], { type: mimeType });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        // Create server startup scripts
+        function createServerScripts() {
+            const htmlFileName = window.location.pathname.split('/').pop() || 'traderq.html';
+            
+            // Windows Batch file
+            const batScript = `@echo off
+echo Starting TraderQ Server...
+echo.
+echo Server will start at: http://localhost:8000/${htmlFileName}
+echo.
+echo Press Ctrl+C to stop the server
+echo.
+python -m http.server 8000
+pause
+`;
+
+            // Mac/Linux Shell script
+            const shScript = `#!/bin/bash
+echo "Starting TraderQ Server..."
+echo ""
+echo "Server will start at: http://localhost:8000/${htmlFileName}"
+echo ""
+echo "Press Ctrl+C to stop the server"
+echo ""
+python3 -m http.server 8000
+`;
+
+            // Python server script (standalone)
+            const pyScript = `#!/usr/bin/env python3
+"""
+TraderQ Server Startup Script
+Automatically starts a local web server and opens the app in your browser
+"""
+import http.server
+import socketserver
+import webbrowser
+import os
+import sys
+
+PORT = 8000
+HTML_FILE = '${htmlFileName}'
+
+class MyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
+    def end_headers(self):
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        super().end_headers()
+
+def main():
+    # Check if HTML file exists
+    if not os.path.exists(HTML_FILE):
+        print(f"Error: {HTML_FILE} not found in current directory!")
+        print(f"Current directory: {os.getcwd()}")
+        sys.exit(1)
+    
+    try:
+        with socketserver.TCPServer(("", PORT), MyHTTPRequestHandler) as httpd:
+            url = f"http://localhost:{PORT}/{HTML_FILE}"
+            print(f"Starting TraderQ Server...")
+            print(f"Server running at: {url}")
+            print(f"Press Ctrl+C to stop the server\\n")
+            
+            # Try to open browser (works on most systems)
+            try:
+                webbrowser.open(url)
+            except:
+                print(f"Please manually open: {url}")
+            
+            httpd.serve_forever()
+    except OSError as e:
+        if e.errno == 98 or e.errno == 48:  # Address already in use
+            print(f"Error: Port {PORT} is already in use!")
+            print("Please close the other application or change PORT in this script.")
+        else:
+            print(f"Error starting server: {e}")
+        sys.exit(1)
+    except KeyboardInterrupt:
+        print("\\n\\nServer stopped.")
+
+if __name__ == "__main__":
+    main()
+`;
+
+            return { batScript, shScript, pyScript };
+        }
+
+        // Getter functions for scripts (to avoid escaping issues)
+        function getBatScript() {
+            const htmlFileName = window.location.pathname.split('/').pop() || 'traderq.html';
+            return `@echo off
+echo ============================================
+echo Starting TraderQ Server...
+echo ============================================
+echo.
+echo Checking for Python...
+python --version >nul 2>&1
+if errorlevel 1 (
+    echo ERROR: Python is not installed or not in PATH!
+    echo.
+    echo Please install Python from: https://www.python.org/downloads/
+    echo Make sure to check "Add Python to PATH" during installation.
+    echo.
+    pause
+    exit /b 1
+)
+echo Python found!
+echo.
+echo Starting server at: http://localhost:8000/${htmlFileName}
+echo.
+echo IMPORTANT: Keep this window open while using the app!
+echo Press Ctrl+C to stop the server
+echo.
+echo ============================================
+echo.
+cd /d "%~dp0"
+python -m http.server 8000
+if errorlevel 1 (
+    echo.
+    echo ERROR: Failed to start server!
+    echo Possible reasons:
+    echo - Port 8000 is already in use
+    echo - Python is not installed correctly
+    echo.
+    echo Try: python3 -m http.server 8000
+    echo Or use a different port: python -m http.server 8080
+    echo.
+    pause
+)
+`;
+        }
+
+        function getShScript() {
+            const htmlFileName = window.location.pathname.split('/').pop() || 'traderq.html';
+            return `#!/bin/bash
+echo "Starting TraderQ Server..."
+echo ""
+echo "Server will start at: http://localhost:8000/${htmlFileName}"
+echo ""
+echo "Press Ctrl+C to stop the server"
+echo ""
+python3 -m http.server 8000
+`;
+        }
+
+        function getInstallerScript() {
+            const htmlFileName = window.location.pathname.split('/').pop() || 'traderq.html';
+            return `@echo off
+REM ============================================
+REM TraderQ Installer Script
+REM ============================================
+echo.
+echo ============================================
+echo TraderQ Setup & Installer
+echo ============================================
+echo.
+echo This script will:
+echo 1. Check if Python is installed
+echo 2. Create a launcher script
+echo 3. Set up everything needed to run TraderQ
+echo.
+pause
+
+REM Change to script directory
+cd /d "%~dp0"
+
+REM Check for Python
+echo.
+echo [1/3] Checking for Python...
+python --version >nul 2>&1
+if errorlevel 1 (
+    echo.
+    echo ❌ Python is NOT installed!
+    echo.
+    echo Python is required to run TraderQ.
+    echo.
+    echo Please install Python:
+    echo 1. Go to: https://www.python.org/downloads/
+    echo 2. Download Python 3.x (latest version)
+    echo 3. During installation, CHECK "Add Python to PATH"
+    echo 4. Run this installer again after installing Python
+    echo.
+    echo Opening Python download page...
+    start https://www.python.org/downloads/
+    echo.
+    pause
+    exit /b 1
+)
+
+for /f "tokens=2" %%i in ('python --version 2^>^&1') do set PYTHON_VERSION=%%i
+echo ✅ Python found! Version: %PYTHON_VERSION%
+echo.
+
+REM Check if HTML file exists
+echo [2/3] Checking for traderq.html...
+if not exist "${htmlFileName}" (
+    echo.
+    echo ❌ ERROR: ${htmlFileName} not found in current directory!
+    echo.
+    echo Please make sure ${htmlFileName} is in the same folder as this installer.
+    echo Current directory: %CD%
+    echo.
+    pause
+    exit /b 1
+)
+echo ✅ ${htmlFileName} found!
+echo.
+
+REM Create launcher script
+echo [3/3] Creating launcher script...
+(
+echo @echo off
+echo cd /d "%%~dp0"
+echo echo Starting TraderQ Server...
+echo echo.
+echo echo Server will be available at: http://localhost:8000/${htmlFileName}
+echo echo.
+echo echo IMPORTANT: Keep this window open while using TraderQ!
+echo echo Press Ctrl+C to stop the server.
+echo echo.
+echo python -m http.server 8000
+echo if errorlevel 1 (
+echo     echo.
+echo     echo ERROR: Server failed to start!
+echo     echo Trying alternative port 8080...
+echo     python -m http.server 8080
+echo     if errorlevel 1 (
+echo         echo.
+echo         echo ERROR: Could not start server on port 8080 either.
+echo         echo Please check if Python is installed correctly.
+echo         pause
+echo     )
+echo )
+) > "START_TRADERQ.bat"
+
+echo ✅ Launcher script created: START_TRADERQ.bat
+echo.
+
+REM Create desktop shortcut (optional)
+echo.
+echo ============================================
+echo Installation Complete!
+echo ============================================
+echo.
+echo ✅ Setup successful!
+echo.
+echo To run TraderQ:
+echo 1. Double-click "START_TRADERQ.bat" in this folder
+echo 2. A server window will open - keep it open
+echo 3. Your browser will open automatically, or go to:
+echo    http://localhost:8000/${htmlFileName}
+echo.
+echo ============================================
+echo.
+echo Would you like to start TraderQ now? (Y/N)
+set /p START_NOW="> "
+if /i "%START_NOW%"=="Y" (
+    echo.
+    echo Starting TraderQ...
+    start "" "START_TRADERQ.bat"
+    timeout /t 2 >nul
+    start http://localhost:8000/${htmlFileName}
+    echo.
+    echo TraderQ should be opening in your browser!
+) else (
+    echo.
+    echo You can start TraderQ anytime by double-clicking "START_TRADERQ.bat"
+)
+echo.
+pause
+`;
+
+        function getPyScript() {
+            const htmlFileName = window.location.pathname.split('/').pop() || 'traderq.html';
+            return `#!/usr/bin/env python3
+"""
+TraderQ Server Startup Script
+Automatically starts a local web server and opens the app in your browser
+"""
+import http.server
+import socketserver
+import webbrowser
+import os
+import sys
+
+PORT = 8000
+HTML_FILE = '${htmlFileName}'
+
+class MyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
+    def end_headers(self):
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        super().end_headers()
+
+def main():
+    # Check if HTML file exists
+    if not os.path.exists(HTML_FILE):
+        print(f"Error: {HTML_FILE} not found in current directory!")
+        print(f"Current directory: {os.getcwd()}")
+        sys.exit(1)
+    
+    try:
+        with socketserver.TCPServer(("", PORT), MyHTTPRequestHandler) as httpd:
+            url = f"http://localhost:{PORT}/{HTML_FILE}"
+            print(f"Starting TraderQ Server...")
+            print(f"Server running at: {url}")
+            print(f"Press Ctrl+C to stop the server\\n")
+            
+            # Try to open browser (works on most systems)
+            try:
+                webbrowser.open(url)
+            except:
+                print(f"Please manually open: {url}")
+            
+            httpd.serve_forever()
+    except OSError as e:
+        if e.errno == 98 or e.errno == 48:  # Address already in use
+            print(f"Error: Port {PORT} is already in use!")
+            print("Please close the other application or change PORT in this script.")
+        else:
+            print(f"Error starting server: {e}")
+        sys.exit(1)
+    except KeyboardInterrupt:
+        print("\\n\\nServer stopped.")
+
+if __name__ == "__main__":
+    main()
+`;
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            loadSettings();
+            if (document.getElementById('showMACD').checked) {
+                document.getElementById('macdModeContainer').style.display = 'block';
+            }
+            
+            // Check if running from file:// and show server startup options
+            if (window.location.protocol === 'file:') {
+                const scripts = createServerScripts();
+                const htmlFileName = window.location.pathname.split('/').pop() || 'traderq.html';
+                const tabContent = document.getElementById('tabContent');
+                
+                tabContent.innerHTML = `
+                    <div class="server-startup">
+                        <h3>🚀 Quick Start - Local Server Setup</h3>
+                        <p style="margin-bottom: 15px;">This app needs to run on a web server. Choose the easiest option for your system:</p>
+                        
+                        <h4 style="color: #00ff88; margin-top: 20px; margin-bottom: 10px;">⭐ Option 1: Installer Script (Recommended - Easiest!)</h4>
+                        <p style="margin-bottom: 10px;">Download and run the installer - it will check everything and set up TraderQ automatically:</p>
+                        
+                        <div style="margin: 15px 0;">
+                            <button onclick="downloadFile('INSTALL_TRADERQ.bat', getInstallerScript(), 'text/plain');" class="download-btn" style="background: linear-gradient(90deg, #00ff88 0%, #00d4ff 100%); font-size: 16px; padding: 15px 25px;">🚀 INSTALL TRADERQ (Windows)</button>
+                        </div>
+                        
+                        <div class="code-block" style="background: rgba(0, 255, 136, 0.15); border-color: #00ff88;">
+                            <strong>📋 What the installer does:</strong><br>
+                            ✅ Checks if Python is installed<br>
+                            ✅ Creates a launcher script (START_TRADERQ.bat)<br>
+                            ✅ Sets everything up automatically<br>
+                            ✅ Can start TraderQ for you when done<br><br>
+                            <strong>Just double-click INSTALL_TRADERQ.bat and follow the prompts!</strong>
+                        </div>
+                        
+                        <h4 style="color: #00d4ff; margin-top: 25px; margin-bottom: 10px;">Option 2: Quick Start Scripts (If installer doesn't work)</h4>
+                        <p style="margin-bottom: 10px;">Download the appropriate script for your system, place it in the <strong>same folder</strong> as this HTML file, and run it:</p>
+                        
+                        <div style="margin: 15px 0;">
+                            <button onclick="downloadFile('start-server.bat', getBatScript(), 'text/plain');" class="download-btn">📥 Windows (.bat)</button>
+                            <button onclick="downloadFile('start-server.sh', getShScript(), 'text/plain');" class="download-btn">📥 Mac/Linux (.sh)</button>
+                            <button onclick="downloadFile('start-server.py', getPyScript(), 'text/plain');" class="download-btn">📥 Python (.py)</button>
+                        </div>
+                        
+                        <div class="code-block" style="background: rgba(0, 255, 136, 0.1); border-color: #00ff88;">
+                            <strong>📋 Step-by-Step Instructions:</strong><br><br>
+                            <strong>Windows:</strong><br>
+                            1. Click "📥 Windows (.bat)" above to download<br>
+                            2. Make sure the .bat file is in the same folder as traderq.html<br>
+                            3. Double-click <code>start-server.bat</code><br>
+                            4. A black window will open - <strong>keep it open</strong> (this is the server)<br>
+                            5. Your browser should open automatically, or go to: <a href="http://localhost:8000/${htmlFileName}" target="_blank" style="color: #00ff88;">http://localhost:8000/${htmlFileName}</a><br><br>
+                            <strong>Mac/Linux:</strong><br>
+                            1. Click "📥 Mac/Linux (.sh)" above to download<br>
+                            2. Open terminal in the folder with traderq.html<br>
+                            3. Run: <code>chmod +x start-server.sh</code><br>
+                            4. Run: <code>./start-server.sh</code><br>
+                            5. Keep terminal open and browser will open automatically<br><br>
+                            <strong>Python Script:</strong><br>
+                            1. Click "📥 Python (.py)" above to download<br>
+                            2. Open terminal/command prompt in the folder<br>
+                            3. Run: <code>python start-server.py</code> (or <code>python3 start-server.py</code>)<br>
+                            4. Keep terminal open - browser opens automatically
+                        </div>
+                        
+                        <h4 style="color: #00d4ff; margin-top: 25px; margin-bottom: 10px;">Option 2: Manual Command (If scripts don't work)</h4>
+                        <p style="margin-bottom: 10px;">Open terminal/command prompt in the folder with traderq.html and run:</p>
+                        <div class="code-block">
+                            <strong>Windows:</strong><br>
+                            python -m http.server 8000<br><br>
+                            <strong>Mac/Linux:</strong><br>
+                            python3 -m http.server 8000
+                        </div>
+                        <p style="margin-top: 10px;"><strong>Important:</strong> Keep the terminal window open! The server runs in that window.</p>
+                        <p style="margin-top: 10px;">Then manually open: <a href="http://localhost:8000/${htmlFileName}" target="_blank" style="color: #00d4ff; font-weight: bold;">http://localhost:8000/${htmlFileName}</a></p>
+                        
+                        <div style="margin-top: 20px; padding: 15px; background: rgba(243, 18, 96, 0.1); border-left: 3px solid #f31260; border-radius: 4px;">
+                            <strong>⚠️ Troubleshooting "Cannot be reached" Error:</strong><br>
+                            <ul style="margin-left: 20px; margin-top: 10px; line-height: 1.8;">
+                                <li>Make sure the server is actually running (you should see a terminal/command window open)</li>
+                                <li>Check that Python is installed: Open terminal and type <code>python --version</code> (or <code>python3 --version</code>)</li>
+                                <li>Verify port 8000 is not in use (close other applications using it)</li>
+                                <li>Make sure traderq.html is in the same folder where you started the server</li>
+                                <li>Try a different port: <code>python -m http.server 8080</code> then go to <code>http://localhost:8080/${htmlFileName}</code></li>
+                                <li>Check Windows Firewall isn't blocking Python</li>
+                            </ul>
+                        </div>
+                        
+                        <h4 style="color: #00d4ff; margin-top: 25px; margin-bottom: 10px;">Option 3: Use Alpha Vantage API (No server needed)</h4>
+                        <p style="margin-bottom: 10px;">Switch to "Alpha Vantage" data source in the sidebar and get a free API key from <a href="https://www.alphavantage.co/support/#api-key" target="_blank" style="color: #00d4ff;">alphavantage.co</a></p>
+                        <p style="margin-bottom: 10px; color: #888;">This works even without a local server, but requires an internet connection and API key.</p>
+                    </div>
+                    <div id="trackerTab">
+                        <div class="chart-container" id="chart"></div>
+                        <div class="metrics" id="metrics"></div>
+                    </div>
+                `;
+            } else {
+                // Only auto-load data if not from file:// protocol
+                loadData();
+            }
+        });
+
+        // Auto-save on changes
+        document.querySelectorAll('input, select').forEach(el => {
+            el.addEventListener('change', saveSettings);
+        });
+
+        // Re-render chart on indicator toggle
+        document.querySelectorAll('#showSMA20, #showSMA200, #showEMA, #showVolume, #showRSI, #showMACD, #showBollinger, #showSupertrend, #showFVG, input[name="theme"], input[name="macdMode"], #macdSidewaysWindow, #macdSidewaysThreshold').forEach(el => {
+            el.addEventListener('change', function() {
+                if (currentData) {
+                    renderChart();
+                    saveSettings();
+                }
+            });
+        });
+    </script>
+</body>
+</html>
+
