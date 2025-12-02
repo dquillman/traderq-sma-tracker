@@ -60,6 +60,13 @@ import ui_glow_patch
 import yf_patch  # glow+session patch
 
 APP_VERSION = "v2.5.3"
+
+st.set_page_config(
+    page_title="TraderQ",
+    page_icon="📈",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 # v2.5.0 – Added Extended MACD indicator with adjustable sideways detection (lookback bars and range threshold), flattens MACD during range-bound markets
 # v2.4.0 – Added Fair Value Gap indicator, indicator selection for AI Recommendations, trade parameter visualization (red risk/green reward zones)
 # v2.3.0 – Added Supertrend and EMA indicators, integrated Supertrend into AI Recommendations
