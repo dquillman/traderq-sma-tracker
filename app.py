@@ -59,7 +59,7 @@ import streamlit as st
 import ui_glow_patch
 import yf_patch  # glow+session patch
 
-APP_VERSION = "v2.5.1"
+APP_VERSION = "v2.5.3"
 # v2.5.0 – Added Extended MACD indicator with adjustable sideways detection (lookback bars and range threshold), flattens MACD during range-bound markets
 # v2.4.0 – Added Fair Value Gap indicator, indicator selection for AI Recommendations, trade parameter visualization (red risk/green reward zones)
 # v2.3.0 – Added Supertrend and EMA indicators, integrated Supertrend into AI Recommendations
@@ -3950,265 +3950,8 @@ def build_screener(tickers: list[str], start: date, end: date, mode: str, pretou
             row["BB Position %"] = np.nan
 
         rows.append(row)
-
-    df = pd.DataFrame(rows)
-    if df.empty:
-        return df
-    df = df.sort_values(by=["Dist to SMA200 (%)"], key=lambda s: s.abs()).reset_index(drop=True)
-    return df
-
-# --- UI ---
-st.set_page_config(
-    page_title="TraderQ - Professional Trading Analytics",
-    page_icon="📈",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
-# Custom CSS for high-tech professional look
-st.markdown("""
-<style>
-    /* Main styling */
-    .main .block-container {
-        padding-top: 2rem;
-        padding-bottom: 2rem;
-    }
-    
-    /* Headers */
-    h1 {
-        color: #00d4ff;
-        font-weight: 700;
-        letter-spacing: -0.5px;
-        border-bottom: 2px solid #00d4ff;
-        padding-bottom: 0.5rem;
-        margin-bottom: 1.5rem;
-    }
-    
-    h2 {
-        color: #ffffff;
-        font-weight: 600;
-        margin-top: 1.5rem;
-        margin-bottom: 1rem;
-    }
-    
-    h3 {
-        color: #b0b0b0;
-        font-weight: 500;
-    }
-    
-    /* Sidebar styling */
-    [data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #0a0e27 0%, #1a1f3a 100%);
-    }
-    
-    [data-testid="stSidebar"] .css-1d391kg {
-        padding-top: 2rem;
-    }
-    
-    /* Metrics styling */
-    [data-testid="stMetricValue"] {
-        color: #00d4ff;
-        font-size: 2rem;
-        font-weight: 700;
-    }
-    
-    [data-testid="stMetricDelta"] {
-        color: #00ff88;
-    }
-    
-    /* Buttons - More specific selectors to ensure styles apply */
-    .stButton > button,
-    button[data-testid="baseButton-secondary"],
-    button[data-testid="baseButton-primary"],
-    button.stDownloadButton,
-    div[data-testid="stDownloadButton"] > button {
-        background: linear-gradient(90deg, #00d4ff 0%, #0099cc 100%) !important;
-        color: white !important;
-        border: none !important;
-        border-radius: 8px !important;
-        padding: 0.78125rem 2.34375rem !important;  /* Increased by another 25%: 0.625*1.25=0.78125, 1.875*1.25=2.34375 */
-        font-weight: 600 !important;
-        font-size: 2em !important;  /* Increased to 2em for better visibility */
-        line-height: 1.5 !important;
-        min-height: 3rem !important;
-        transition: all 0.3s ease !important;
-        box-shadow: 0 4px 15px rgba(0, 212, 255, 0.3) !important;
-    }
-    
-    .stButton > button:hover,
-    button[data-testid="baseButton-secondary"]:hover,
-    button[data-testid="baseButton-primary"]:hover,
-    button.stDownloadButton:hover,
-    div[data-testid="stDownloadButton"] > button:hover {
-        background: linear-gradient(90deg, #00ff88 0%, #00d4ff 100%) !important;
-        box-shadow: 0 6px 20px rgba(0, 212, 255, 0.5) !important;
-        transform: translateY(-2px) !important;
-    }
-    
-    /* Ensure buttons don't look selected/active by default */
-    .stButton > button:not(:active):not(:focus),
-    button[data-testid="baseButton-secondary"]:not(:active):not(:focus),
-    button[data-testid="baseButton-primary"]:not(:active):not(:focus) {
-        background: linear-gradient(90deg, #00d4ff 0%, #0099cc 100%) !important;
-    }
-    
-    /* Active/focus state styling */
-    .stButton > button:active,
-    .stButton > button:focus,
-    button[data-testid="baseButton-secondary"]:active,
-    button[data-testid="baseButton-secondary"]:focus,
-    button[data-testid="baseButton-primary"]:active,
-    button[data-testid="baseButton-primary"]:focus {
-        background: linear-gradient(90deg, #0099cc 0%, #0077aa 100%) !important;
-        box-shadow: 0 2px 10px rgba(0, 212, 255, 0.4) !important;
-        transform: translateY(0) !important;
-    }
-    
-    /* Selectbox and inputs */
-    .stSelectbox > div > div {
-        background-color: #1a1f3a;
-        border: 1px solid #00d4ff;
-        border-radius: 6px;
-    }
-    
-    /* Number inputs */
-    input[type="number"] {
-        background-color: #1a1f3a !important;
-        border: 1px solid #00d4ff !important;
-        color: #ffffff !important;
-        border-radius: 6px !important;
-    }
-    
-    /* Tabs */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
-        background-color: #0a0e27;
-        padding: 0.5rem;
-        border-radius: 8px;
-    }
-    
-    .stTabs [data-baseweb="tab"] {
-        background-color: #1a1f3a;
-        color: #b0b0b0;
-        border-radius: 6px;
-        padding: 0.75rem 1.5rem;
-        font-weight: 500;
-        transition: all 0.3s ease;
-    }
-    
-    .stTabs [aria-selected="true"] {
-        background: linear-gradient(90deg, #00d4ff 0%, #0099cc 100%);
-        color: white;
-        box-shadow: 0 4px 15px rgba(0, 212, 255, 0.3);
-    }
-    
-    /* Expanders */
-    .streamlit-expanderHeader {
-        background-color: #1a1f3a;
-        border: 1px solid #00d4ff;
-        border-radius: 6px;
-        padding: 0.75rem;
-        font-weight: 500;
-    }
-    
-    /* Info boxes */
-    .stInfo {
-        background: linear-gradient(135deg, rgba(0, 212, 255, 0.1) 0%, rgba(0, 153, 204, 0.1) 100%);
-        border-left: 4px solid #00d4ff;
-        border-radius: 6px;
-        padding: 1rem;
-    }
-    
-    /* Success boxes */
-    .stSuccess {
-        background: linear-gradient(135deg, rgba(0, 255, 136, 0.1) 0%, rgba(0, 212, 255, 0.1) 100%);
-        border-left: 4px solid #00ff88;
-        border-radius: 6px;
-    }
-    
-    /* Warning boxes */
-    .stWarning {
-        background: linear-gradient(135deg, rgba(255, 193, 7, 0.1) 0%, rgba(255, 152, 0, 0.1) 100%);
-        border-left: 4px solid #ffc107;
-        border-radius: 6px;
-    }
-    
-    /* Error boxes */
-    .stError {
-        background: linear-gradient(135deg, rgba(243, 18, 96, 0.1) 0%, rgba(200, 0, 0, 0.1) 100%);
-        border-left: 4px solid #f31260;
-        border-radius: 6px;
-    }
-    
-    /* Dataframes */
-    .dataframe {
-        background-color: #1a1f3a;
-        border-radius: 8px;
-        border: 1px solid #00d4ff;
-    }
-    
-    /* Radio buttons */
-    [data-baseweb="radio"] {
-        background-color: #1a1f3a;
-    }
-    
-    /* Sliders */
-    .stSlider > div > div {
-        background-color: #1a1f3a;
-    }
-    
-    /* Checkboxes */
-    [data-baseweb="checkbox"] {
-        background-color: #1a1f3a;
-    }
-    
-    /* Divider */
-    hr {
-        border: none;
-        border-top: 2px solid #00d4ff;
-        opacity: 0.3;
-        margin: 2rem 0;
-    }
-    
-    /* Code blocks */
-    .stCodeBlock {
-        background-color: #0a0e27;
-        border: 1px solid #00d4ff;
-        border-radius: 6px;
-    }
-    
-    /* Caption styling */
-    .stCaption {
-        color: #b0b0b0;
-        font-size: 0.85rem;
-    }
-    
-    /* Main container background */
-    .main {
-        background: linear-gradient(180deg, #0a0e27 0%, #1a1f3a 50%, #0a0e27 100%);
-    }
-    
-    /* Scrollbar styling */
-    ::-webkit-scrollbar {
-        width: 10px;
-        height: 10px;
-    }
-    
-    ::-webkit-scrollbar-track {
-        background: #0a0e27;
-    }
-    
-    ::-webkit-scrollbar-thumb {
-        background: #00d4ff;
-        border-radius: 5px;
-    }
-    
-    ::-webkit-scrollbar-thumb:hover {
-        background: #00ff88;
-    }
-</style>
-""", unsafe_allow_html=True)
-ui_glow_patch.apply()  # apply glow after set_page_config
+    return pd.DataFrame(rows)
+# ui_glow_patch.apply()  # apply glow after set_page_config
 
 # Professional header
 st.markdown(f"""
@@ -4328,25 +4071,25 @@ else:
         # Progress bar - display with time remaining
         progress_bar = st.sidebar.progress(progress_value)
         # Add text label using HTML for better visibility
-        st.sidebar.markdown(
-            f'<div style="text-align: center; color: #00d4ff; font-size: 0.75rem; margin-top: -0.5rem; margin-bottom: 0.5rem;">'
-            f'{remaining_minutes}:{remaining_secs:02d} remaining</div>',
-            unsafe_allow_html=True
-        )
+        # st.sidebar.markdown(
+        #     f'<div style="text-align: center; color: #00d4ff; font-size: 0.75rem; margin-top: -0.5rem; margin-bottom: 0.5rem;">'
+        #     f'{remaining_minutes}:{remaining_secs:02d} remaining</div>',
+        #     unsafe_allow_html=True
+        # )
         st.sidebar.caption("(Auto-updates every 10 seconds)")
         
         # Use meta refresh for automatic page reload every 10 seconds
         # This updates the countdown display and eventually triggers data refresh
         # Meta refresh preserves session state automatically
-        update_interval = 10  # Reload page every 10 seconds to update countdown
-        if remaining_seconds > update_interval:
-            # Meta refresh tag - works at browser level
-            meta_refresh = f'<meta http-equiv="refresh" content="{update_interval}">'
-            st.markdown(meta_refresh, unsafe_allow_html=True)
-        else:
-            # Less than 10 seconds remaining, reload when time is up
-            meta_refresh = f'<meta http-equiv="refresh" content="{remaining_seconds}">'
-            st.markdown(meta_refresh, unsafe_allow_html=True)
+        # update_interval = 10  # Reload page every 10 seconds to update countdown
+        # if remaining_seconds > update_interval:
+        #     # Meta refresh tag - works at browser level
+        #     meta_refresh = f'<meta http-equiv="refresh" content="{update_interval}">'
+        #     st.markdown(meta_refresh, unsafe_allow_html=True)
+        # else:
+        #     # Less than 10 seconds remaining, reload when time is up
+        #     meta_refresh = f'<meta http-equiv="refresh" content="{remaining_seconds}">'
+        #     st.markdown(meta_refresh, unsafe_allow_html=True)
 
 # Ticker selection with persistent custom tickers (moved to sidebar)
 universe = DEFAULT_STOCKS if mode == "Stocks" else DEFAULT_CRYPTOS
@@ -4717,64 +4460,8 @@ with tab1:
                             st.rerun()
                 
                 # Inject JavaScript AFTER button is rendered to style it
-                st.markdown(f"""
-                <script>
-                (function() {{
-                    function styleAIButton() {{
-                        // Find the marker div
-                        const marker = document.getElementById('{button_marker_id}');
-                        if (!marker) return;
-                        
-                        // Find the button near the marker (should be in the same column)
-                        const column = marker.closest('[data-testid="column"]');
-                        if (!column) return;
-                        
-                        // Find button with "AI Recommendations" text in this column
-                        const buttons = column.querySelectorAll('button');
-                        buttons.forEach(function(btn) {{
-                            const btnText = (btn.textContent || btn.innerText || '').trim();
-                            if (btnText.includes('AI Recommendations') || btnText.includes('🤖')) {{
-                                // Apply styles directly
-                                btn.style.setProperty('background', '{button_bg}', 'important');
-                                btn.style.setProperty('border-color', '{button_color}', 'important');
-                                btn.style.setProperty('background-image', 'none', 'important');
-                                btn.style.setProperty('background-color', '{button_color}', 'important');
-                                
-                                // Override hover state
-                                btn.addEventListener('mouseenter', function() {{
-                                    this.style.setProperty('background', '{button_bg}', 'important');
-                                    this.style.setProperty('opacity', '0.85', 'important');
-                                }});
-                                btn.addEventListener('mouseleave', function() {{
-                                    this.style.setProperty('background', '{button_bg}', 'important');
-                                    this.style.setProperty('opacity', '1', 'important');
-                                }});
-                            }}
-                        }});
-                    }}
-                    
-                    // Run multiple times to catch the button
-                    if (document.readyState === 'loading') {{
-                        document.addEventListener('DOMContentLoaded', styleAIButton);
-                    }} else {{
-                        styleAIButton();
-                    }}
-                    setTimeout(styleAIButton, 100);
-                    setTimeout(styleAIButton, 300);
-                    setTimeout(styleAIButton, 600);
-                    
-                    // Watch for DOM changes
-                    const observer = new MutationObserver(function(mutations) {{
-                        styleAIButton();
-                    }});
-                    observer.observe(document.body, {{
-                        childList: true,
-                        subtree: true,
-                        attributes: false
-                    }});
-                }})();
-                </script>
-                """, unsafe_allow_html=True)
+                # JS injection removed for stability
+                pass
             
             # Get trade parameters from AI recommendation if available
             trade_entry = None
@@ -5328,7 +5015,7 @@ with tab3:
     st.markdown("Analyze past Golden and Death Cross events and their performance.")
     
     hist_ticker = st.selectbox("Select Ticker", selected or universe, key="hist_ticker")
-    days_after = st.slider("Analyze performance after (days)", min_value=7, max_value=180, value=30, step=7, key="hist_days")
+    days_after = st.slider("Analyze performance after (days)", min_value=7, max_value=180, value=28, step=7, key="hist_days")
     
     if st.button("Analyze Crosses", key="analyze_crosses"):
         df = load_data(hist_ticker, start_d, end_d, mode, interval=interval, data_source=data_source)

@@ -1,22 +1,29 @@
-# yf_patch.py ??? force a proper session and (optionally) pdr override
+# yf_patch.py - force a proper session and (optionally) pdr override
 import requests
 import yfinance as yf
+import sys
+
+# 1. Try to enable pdr override
 try:
     from pandas_datareader import data as pdr  # noqa: F401
     yf.pdr_override()
 except Exception:
     pass
 
-# Shared session with realistic headers fixes 403/HTML responses
-sess = requests.Session()
-sess.headers.update({
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Connection": "keep-alive"
-})
+# 2. Create a shared session with realistic headers
+try:
+    sess = requests.Session()
+    sess.headers.update({
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Connection": "keep-alive"
+    })
+except Exception as e:
+    print(f"Error creating session in yf_patch: {e}", file=sys.stderr)
+    sess = requests.Session() # Fallback to default session
 
-# yfinance uses shared._base._requests.Session under the hood; set the default session
+# 3. Patch yfinance session
 try:
     import yfinance.shared as yfs
     yfs._base._requests = sess
@@ -28,7 +35,7 @@ try:
 except Exception:
     pass
 
-# Additional patch: monkey-patch yfinance's download function to always use our session
+# 4. Monkey-patch yfinance.download
 try:
     import yfinance as yf_module
     _original_download = yf_module.download
@@ -46,7 +53,7 @@ try:
 except Exception:
     pass
 
-# Convenience wrapper if you want to call via yf_patch.download(...)
+# 5. Convenience wrapper
 def download(*args, **kwargs):
     kwargs.setdefault("progress", False)
     kwargs.setdefault("threads", False)

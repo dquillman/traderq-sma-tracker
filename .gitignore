@@ -26,7 +26,7 @@ env/
 Thumbs.db
 
 # Streamlit
-.streamlit/
+
 *.log
 streamlit_*.log
 
@@ -59,3 +59,16 @@ nul
 # Nested repo (should be removed or handled separately)
 traderq-sma-tracker/
 
+
+# Deployment artifacts
+deploy_clean/
+deploy_clean_v2/
+deploy_package/
+traderq-sma-tracker-DELETE/
+traderq-sma-tracker.zip
+
+# Logs
+app_logs.json
+logs.json
+startup_logs.json
+startup_logs_v2.json
