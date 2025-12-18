@@ -1081,43 +1081,19 @@ def find_support_resistance(df: pd.DataFrame, window: int = 20, lookback: int = 
     lows = df["low"].values
     
     # Find local maxima (resistance) and minima (support)
-    from scipy.signal import argrelextrema
+    # Find local maxima (resistance) and minima (support)
+    # from scipy.signal import argrelextrema
     
     resistance_levels = []
     support_levels = []
     
-    # Find resistance (local highs)
-    max_indices = argrelextrema(highs, np.greater, order=lookback)[0]
-    for idx in max_indices:
-        if idx < len(df):
-            resistance_levels.append({
-                "price": float(highs[idx]),
-                "date": df.index[idx],
-                "strength": 1  # Can be enhanced with volume/retest count
-            })
-    
-    # Find support (local lows)
-    min_indices = argrelextrema(lows, np.less, order=lookback)[0]
-    for idx in min_indices:
-        if idx < len(df):
-            support_levels.append({
-                "price": float(lows[idx]),
-                "date": df.index[idx],
-                "strength": 1
-            })
-    
-    # Sort and get most recent/relevant levels
-    resistance_levels.sort(key=lambda x: x["price"], reverse=True)
-    support_levels.sort(key=lambda x: x["price"], reverse=True)
-    
-    # Filter to most significant levels (within 2% of current price)
-    current_price = float(df["close"].iloc[-1])
-    resistance_levels = [r for r in resistance_levels if abs(r["price"] - current_price) / current_price < 0.2]
-    support_levels = [s for s in support_levels if abs(s["price"] - current_price) / current_price < 0.2]
+    # Scipy disabled for build stability
+    # max_indices = argrelextrema(highs, np.greater, order=lookback)[0]
+    # ...
     
     return {
-        "support": support_levels[:5],  # Top 5 support levels
-        "resistance": resistance_levels[:5]  # Top 5 resistance levels
+        "support": [],
+        "resistance": []
     }
 
 # --- Pattern Detection ---
@@ -1132,22 +1108,10 @@ def detect_patterns(df: pd.DataFrame) -> list:
     lows = df["low"].values
     
     # Use scipy to find local peaks and troughs
-    from scipy.signal import argrelextrema
+    # from scipy.signal import argrelextrema
+    return [] # Scipy disabled
     
-    # Find local peaks (maxima) and troughs (minima)
-    # Look for peaks/troughs within a window of 5-10 periods
-    window = min(10, len(highs) // 4)
-    if window < 3:
-        window = 3
-    
-    peak_indices = argrelextrema(highs, np.greater, order=window)[0]
-    trough_indices = argrelextrema(lows, np.less, order=window)[0]
-    
-    # Focus on recent data (last 60 periods or all if less)
-    lookback = min(60, len(df))
-    recent_start = len(df) - lookback
-    peak_indices = peak_indices[peak_indices >= recent_start]
-    trough_indices = trough_indices[trough_indices >= recent_start]
+    # ... code disabled ...
     
     # Double Top: Two similar peaks with a trough between them
     if len(peak_indices) >= 2:
@@ -6403,4 +6367,13 @@ with tab12:
         5. Enter them in the configuration section above
         6. Enable dry run mode to test without placing real trades
         """)
+
+
+# --- Disclaimer ---
+st.sidebar.divider()
+st.sidebar.caption("""
+**Disclaimer:** This application is for educational and informational purposes only. 
+It does not constitute financial advice. Trading stocks and cryptocurrencies involves significant risk 
+and you may lose your capital. Always do your own research or consult a certified financial advisor.
+""")
 

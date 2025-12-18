@@ -17,3 +17,8 @@
 !firebase.json
 !.streamlit/
 !.streamlit/**
+!Dockerfile
+!styles/
+!styles/**
+!modules/
+!modules/**

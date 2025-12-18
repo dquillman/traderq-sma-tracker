@@ -1,6 +1,6 @@
 # Deploy to Cloud Run using Source-based deployment (Buildpacks)
 Write-Host "Deploying to Cloud Run..."
-gcloud run deploy traderq-app --source . --region us-central1 --allow-unauthenticated --project trader-q
+gcloud run deploy traderq-streamlit --source . --region us-central1 --allow-unauthenticated --project trader-q --clear-base-image
 
 # Deploy Firebase Hosting
 Write-Host "Deploying Firebase Hosting..."
