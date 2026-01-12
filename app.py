@@ -21,7 +21,7 @@ import streamlit as st
 import ui_glow_patch
 import yf_patch  # glow+session patch
 
-APP_VERSION = "v2.5.3"
+APP_VERSION = "v2.5.4"
 
 st.set_page_config(
     page_title="TraderQ",
@@ -3901,8 +3901,8 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # Main tabs
-tab_easy, tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12 = st.tabs([
-    "🚦 Easy Mode", "📈 Tracker", "🔔 Alerts", "📊 Cross History", "💼 Portfolio", "🧪 Backtesting",
+tab1, tab_easy, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12 = st.tabs([
+    "📈 Tracker", "🚦 Easy Mode", "🔔 Alerts", "📊 Cross History", "💼 Portfolio", "🧪 Backtesting",
     "📰 News", "📐 Patterns", "🔗 Correlation", "📝 Journal", "⚡ Signals", "🛡️ Risk", "🔷 Kraken"
 ])
 
