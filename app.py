@@ -16,44 +16,6 @@ import pandas as pd
 import plotly.graph_objects as go
 
 
-def add_cross_markers(fig: go.Figure, df: pd.DataFrame,
-                      price_col: str = "Close",
-                      s20: str = "SMA20",
-                      s200: str = "SMA200",
-                      row: int = 1, col: int = 1) -> None:
-    """
-    Golden cross: 20 crosses above 200 (green triangle-up)
-    Death  cross: 20 crosses below 200 (red triangle-down)
-    Works if df has df[price_col], df[s20], df[s200].
-    """
-    if df is None or df.empty:
-        return
-    needed = (price_col, s20, s200)
-    if any(c not in df.columns for c in needed):
-        return
-    s_prev = df[s20].shift(1)
-    l_prev = df[s200].shift(1)
-    cross_up = (s_prev <= l_prev) & (df[s20] > df[s200])
-    cross_dn = (s_prev >= l_prev) & (df[s20] < df[s200])
-    xu, yu = df.index[cross_up], df.loc[cross_up, price_col]
-    xd, yd = df.index[cross_dn], df.loc[cross_dn, price_col]
-    if len(xu):
-        fig.add_trace(go.Scatter(
-            x=xu, y=yu, mode="markers", name="Golden Cross",
-            marker=dict(symbol="triangle-up", size=25, color="#17c964",
-                        line=dict(width=1, color="#0b3820")),
-            hovertemplate="Golden: %{x|%Y-%m-%d}<br>Price: %{y:.2f}<extra></extra>",
-            showlegend=True
-        ), row=row, col=col)
-    if len(xd):
-        fig.add_trace(go.Scatter(
-            x=xd, y=yd, mode="markers", name="Death Cross",
-            marker=dict(symbol="triangle-down", size=25, color="#f31260",
-                        line=dict(width=1, color="#4a0b19")),
-            hovertemplate="Death: %{x|%Y-%m-%d}<br>Price: %{y:.2f}<extra></extra>",
-            showlegend=True
-        ), row=row, col=col)
-
 
 import streamlit as st
 import ui_glow_patch
@@ -3702,8 +3664,7 @@ def make_chart(df: pd.DataFrame, title: str, theme: str, pretouch_pct: float | N
                 row=row, col=1
             )
 
-    # Add cross markers (golden/death crosses)
-    add_cross_markers(fig, df, price_col="close", s20="SMA20", s200="SMA200", row=row, col=1)
+
 
     # Pretouch band (symmetric % around SMA200)
     if pretouch_pct and pretouch_pct > 0:
